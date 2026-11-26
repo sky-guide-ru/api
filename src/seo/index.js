@@ -5,6 +5,7 @@
 // гайды собираются как для гостя без профиля, рейтинг и сравнение отдают только общее описание.
 import { SECTIONS, HOME, GUIDE_DESCRIPTIONS, ITEM_SKIP, SITE_NAME } from './pages.js';
 import { plainNews } from '@sky-guide/core/news/links.js';
+import { getTranslator } from '@sky-guide/core/i18n/lang.js';
 import { esc, publicSections, sectionHtml, sectionMd, itemParts } from './render.js';
 import { tx } from '@sky-guide/core/i18n/msg.js';
 
@@ -52,7 +53,7 @@ export function createSeo(deps) {
   const crumbs = list => ({ '@type': 'BreadcrumbList', itemListElement: list.map(([name, path], i) => ({ '@type': 'ListItem', position: i + 1, name, item: path })) });
 
   /** Страница по адресу → { path, page, sub?, item?, title, description, body, jsonld, ogType } или null. */
-  function pageFor(pathname) {
+  function pageFor(pathname, lang = 'ru') {
     let p;
     try { p = decodeURIComponent(String(pathname || '/')).replace(/\/+$/, '') || '/'; } catch { return null; }
     if (p === '/') {
@@ -66,7 +67,9 @@ export function createSeo(deps) {
     if (sec) {
       let extra = '';
       if (sec.page === 'guides') extra = guideLinks();
-      if (sec.page === 'news') extra = news.slice(0, 30).map(e => tx`<article><h2>${esc(plainNews(e.title))}</h2><p><time datetime="${esc(e.date)}">${esc(e.date)}</time></p><ul>${e.items.map(i => tx`<li>${esc(plainNews(i))}</li>`).join('')}</ul></article>`).join('');
+      // Перевод — по исходной строке со ссылками (так она лежит в словаре), ссылки убираются уже после
+      const T = x => (lang === 'en' ? getTranslator().tr(x) : x);
+      if (sec.page === 'news') extra = news.slice(0, 30).map(e => tx`<article><h2>${esc(plainNews(T(e.title)))}</h2><p><time datetime="${esc(e.date)}">${esc(e.date)}</time></p><ul>${e.items.map(i => tx`<li>${esc(plainNews(T(i)))}</li>`).join('')}</ul></article>`).join('');
       return {
         ...sec, ogType: 'website',
         body: tx`<h1>${esc(sec.h1)}</h1>${sec.intro.map(t => tx`<p>${esc(t)}</p>`).join('')}${extra}${nav()}`,
@@ -93,11 +96,13 @@ export function createSeo(deps) {
       const it = deps.items.get(m[1]);
       if (!it || ITEM_SKIP.has(it.category)) return null;
       const path = itemPath(it.id);
-      const { name, html, description } = itemParts(it, deps.items.lore(it.id), deps.priceOf?.(it.id) || 0);
+      const en = lang === 'en';
+      const lore = (en && deps.items.loreEn?.(it.id)) || deps.items.lore(it.id);
+      const { name, html, description } = itemParts(it, lore, deps.priceOf?.(it.id) || 0, lang);
       return {
         path, page: 'wiki', item: it.id, title: tx`${name} — ${(it.categoryRu || 'предмет').toLowerCase()} в Hypixel SkyBlock: как получить и цена`, description, ogType: 'article',
         body: tx`<article>${html}</article>${nav()}`,
-        jsonld: [{ '@type': 'WebPage', name, description, inLanguage: 'ru', url: path }, crumbs([['Главная', '/'], ['Вики', '/wiki'], [name, path]])],
+        jsonld: [{ '@type': 'WebPage', name, description, inLanguage: en ? 'en' : 'ru', url: path }, crumbs([['Главная', '/'], ['Вики', '/wiki'], [name, path]])],
       };
     }
     return null;

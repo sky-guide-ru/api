@@ -34,7 +34,7 @@ import { iconMeta, getSkin, getTexture, getRender, getAvatar } from '@sky-guide/
 import { loadPacks, packs } from '@sky-guide/core/packs.js';
 import { rarityRu } from '@sky-guide/core/i18n/ru.js';
 import { fillPetLore } from '@sky-guide/core/lib/pet-lore.js';
-import { getItemRu, getLoreRu, allItems, searchItems, normalizeId, loadFromNeuAsync, translateLore as translateLoreRu, translateLoreLine as translateLoreLineRu } from '@sky-guide/core/items-ru/index.js';
+import { getItemRu, getLoreRu, getLoreEn, allItems, searchItems, normalizeId, loadFromNeuAsync, translateLore as translateLoreRu, translateLoreLine as translateLoreLineRu } from '@sky-guide/core/items-ru/index.js';
 import { createAuth } from './auth.js';
 import { gzip } from './lib/gzip.js';
 import { staticAssets } from './lib/static-assets.js';
@@ -111,7 +111,7 @@ const seo = createSeo({
   guides: () => inLang('ru', () => buildGuides({ guest: true, inv: {} }, {}, guideDeps)), // кэш общий — собираем по-русски // как для гостя без ника: никаких профилей
   groups: GUIDE_GROUPS,
   news: NEWS,
-  items: { all: allItems, get: id => getItemRu(id), lore: id => getLoreRu(id) },
+  items: { all: allItems, get: id => getItemRu(id), lore: id => getLoreRu(id), loreEn: id => getLoreEn(id) },
   priceOf,
 });
 const siteOrigin = req => originOf(publicConfig(process.env).siteUrl, req.get('host'));
@@ -827,7 +827,7 @@ if (fs.existsSync(dist)) {
     }
     req.sbLang = en ? 'en' : 'ru';
     let page = null;
-    try { page = seo.pageFor(bare === '/index.html' ? '/' : bare); } catch (e) { console.warn('[seo]', e.message); }
+    try { page = seo.pageFor(bare === '/index.html' ? '/' : bare, en ? 'en' : 'ru'); } catch (e) { console.warn('[seo]', e.message); }
     const noindex = !page || 'player' in req.query || 'profile' in req.query;
     if (noindex) res.set('X-Robots-Tag', 'noindex, follow');
     res.set('Cache-Control', 'no-cache').type('html')
