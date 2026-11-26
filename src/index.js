@@ -118,7 +118,7 @@ const siteOrigin = req => originOf(publicConfig(process.env).siteUrl, req.get('h
 mountPublicRoutes(app, { env: process.env, seo, origin: siteOrigin, indexNowKey: INDEXNOW_KEY }); // robots.txt, sitemap.xml, llms.txt — до входа
 // Правовые страницы, значок сайта и аватарки открыты всем, даже когда сайт закрыт паролем
 mountLegalRoutes(app, { env: process.env, isOwner: req => auth.isOwnerRequest(req) });
-app.get('/og.png', (req, res) => res.set('Cache-Control', 'public, max-age=86400').type('image/png').sendFile(path.join(config.webDist, 'og.png')));
+app.get(['/og.png', '/og-en.png'], (req, res) => res.set('Cache-Control', 'public, max-age=86400').type('image/png').sendFile(path.join(config.webDist, req.path.slice(1))));
 app.get('/favicon.svg', (req, res) => res.set('Cache-Control', 'public, max-age=86400').type('image/svg+xml').sendFile(path.join(config.webDist, 'favicon.svg')));
 // Аватарки открыты и до входа (страница входа); незнакомый ник сервер скачивает с mc-heads.net — поэтому свой лимит
 const headLimit = apiRateLimit({ clientIp: auth.clientIp, max: Number(process.env.HEADS_PER_MIN) || 240 });

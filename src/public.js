@@ -72,8 +72,8 @@ function headTags(env, o = {}) {
       `<link rel="alternate" hreflang="ru" href="${escAttr(origin + p)}" />`, `<link rel="alternate" hreflang="en" href="${escAttr(origin + en)}" />`,
       `<link rel="alternate" hreflang="x-default" href="${escAttr(origin + p)}" />`);
   }
-  if (origin) tags.push(`<meta property="og:image" content="${origin}/og.png" />`, '<meta property="og:image:width" content="1200" />', '<meta property="og:image:height" content="630" />');
-  tags.push('<meta property="og:site_name" content="SkyBlock трекер" />', '<meta name="twitter:card" content="summary_large_image" />');
+  if (origin) tags.push(`<meta property="og:image" content="${origin}/${o.lang === 'en' ? 'og-en.png' : 'og.png'}" />`, '<meta property="og:image:width" content="1200" />', '<meta property="og:image:height" content="630" />');
+  tags.push('<meta property="og:site_name" content="Sky Guide" />', '<meta name="twitter:card" content="summary_large_image" />');
   if (o.seo?.jsonld && o.jsonld && origin) tags.push(o.jsonld(o.seo.jsonld, origin));
   // Метрику и рекламу РСЯ сервер в страницу НЕ вставляет: их скрипты ставят cookie и передают Яндексу IP посетителя,
   // поэтому браузер подгружает их только после согласия в баннере cookie (client/src/ads.js, consent.js).
