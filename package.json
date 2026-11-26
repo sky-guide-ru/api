@@ -18,7 +18,7 @@
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
-    "@sky-guide/core": "github:sky-guide-ru/core#5ad2cf1808feead8187f047a989bbacb43199df6",
+    "@sky-guide/core": "github:sky-guide-ru/core#v0.1.0",
     "dotenv": "^18.0.10",
     "express": "^5.3.0",
     "mmdb-lib": "^3.0.5"
