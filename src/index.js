@@ -1,3 +1,4 @@
+import 'dotenv/config'; // .env читает api, ядро его не грузит (core 0.2)
 // Первым: учёт внешних API оборачивает fetch до того, как его возьмут остальные модули (SDK советчика и др.)
 import { apiStats, keySince } from '@sky-guide/core/lib/api-stats.js';
 import { PARTS, statePart, partVersions, lightAnalysis, lightMember } from '@sky-guide/core/lib/state-parts.js';

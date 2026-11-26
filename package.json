@@ -18,7 +18,8 @@
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
-    "@sky-guide/core": "github:sky-guide-ru/core#5ad2cf1808feead8187f047a989bbacb43199df6",
+    "@anthropic-ai/sdk": "^1.12.0",
+    "@sky-guide/core": "github:sky-guide-ru/core#4ded4aa63c9763b373c1f206ef7667b1a20a3737",
     "dotenv": "^18.0.10",
     "express": "^5.3.0",
     "mmdb-lib": "^3.0.5",
