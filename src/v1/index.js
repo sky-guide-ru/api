@@ -1,0 +1,169 @@
+// Публичный API /v1: описание — openapi.yaml в корне репо (сначала описание, потом код), страница Swagger — /api/docs.
+//
+// Открыто всем (без ключа): предметы, поиск, Bazaar, аукцион, свечи, флипы, словарь терминов, новости, статус.
+// Данные игроков — только по ключу X-API-Key, для своих клиентов (бот, мод): так требуют правила Hypixel.
+// Все ответы — наши расчёты и переводы, а не пересказ ответа Hypixel. Язык: ?lang=en или заголовок X-Lang: en.
+//
+// Старые адреса /api/* сайт использует как раньше: /v1 только добавляется.
+import express from 'express';
+import { createRateLimiter } from '../lib/guard.js';
+
+export const V1_VERSION = '1.0.0';
+const FLIPS = ['bazaar', 'craft', 'forge', 'npc'];
+const NICK = /^[A-Za-z0-9_]{1,16}$/;
+const ITEM_ID = /^[A-Za-z0-9_:;\-.]{1,80}$/;
+
+/** Ошибка в одном виде для всех ручек: { error, code } */
+function fail(res, status, code, error, extra = {}) {
+  return res.status(status).json({ error, code, ...extra });
+}
+const int = (v, d, min, max) => { const n = Math.round(Number(v)); return Number.isFinite(n) && v !== '' && v != null ? Math.max(min, Math.min(max, n)) : d; };
+
+// Ошибки разбора профиля → коды HTTP
+const PLAYER_ERRORS = {
+  BAD_NAME: [400, 'BAD_NAME'], NOT_FOUND: [404, 'NOT_FOUND'], NO_PROFILE: [404, 'NO_PROFILE'], HIDDEN: [404, 'HIDDEN'],
+  RATE: [503, 'HYPIXEL_LIMIT'], NO_KEY: [503, 'HYPIXEL_UNAVAILABLE'],
+};
+
+/**
+ * @param {object} d зависимости (всё — функции, вызываются на запросе):
+ *   keys — хранилище ключей (createKeyStore); clientIp(req); open() — открыты ли ручки без ключа (PUBLIC_VIEW);
+ *   openPerMin — лимит без ключа с одного адреса;
+ *   items: { card(id, { lvl }), obtain(id), search(q, limit) }; market: { bazaar(q), auctions(q), candles(id, o), flips(kind, q) };
+ *   lexicon(), news(), status(), version();
+ *   players: { view({ player, profile }), hidden(name) }; summary(v), plan(v), money(v)
+ */
+export function createV1(d) {
+  const r = express.Router({ caseSensitive: true });
+  const openLimit = createRateLimiter({ max: d.openPerMin || 120 });
+  const keyHits = new Map(); // id ключа → { n, until }: у каждого ключа свой лимит в минуту
+
+  // CORS: ключ передаётся заголовком, cookie не нужны — читать /v1 можно с любого сайта
+  r.use((req, res, next) => {
+    res.set({ 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'X-API-Key, X-Lang, Content-Type', 'Access-Control-Expose-Headers': 'X-RateLimit-Limit, X-RateLimit-Remaining, Retry-After', 'Access-Control-Max-Age': '86400' });
+    res.vary('X-Lang');
+    if (req.method === 'OPTIONS') return res.status(204).end();
+    if (req.method !== 'GET' && req.method !== 'HEAD') return fail(res, 405, 'METHOD', 'В /v1 только чтение (GET)');
+    next();
+  });
+
+  // Ключ: есть заголовок — проверяем всегда (неверный ключ = 403, даже на открытых ручках, чтобы ошибку было видно сразу)
+  r.use((req, res, next) => {
+    const raw = req.get('X-API-Key');
+    if (raw == null || raw === '') { req.v1Key = null; return next(); }
+    const c = d.keys.check(raw);
+    if (!c.ok) return fail(res, 403, c.code, c.code === 'REVOKED' ? 'Ключ отозван' : 'Неверный ключ API');
+    req.v1Key = c.key;
+    next();
+  });
+
+  // Лимиты: с ключом — лимит ключа в минуту, без ключа — общий лимит с одного адреса
+  r.use((req, res, next) => {
+    let max, wait, left;
+    if (req.v1Key) {
+      max = req.v1Key.perMin;
+      const now = Date.now();
+      let e = keyHits.get(req.v1Key.id);
+      if (!e || e.until <= now) { e = { n: 0, until: now + 60_000 }; keyHits.set(req.v1Key.id, e); }
+      e.n++;
+      wait = e.n <= max ? 0 : Math.ceil((e.until - now) / 1000);
+      left = Math.max(0, max - e.n);
+    } else {
+      max = d.openPerMin || 120;
+      wait = openLimit.hit(d.clientIp(req));
+    }
+    res.set('X-RateLimit-Limit', String(max));
+    if (left != null) res.set('X-RateLimit-Remaining', String(left));
+    if (wait) return res.set('Retry-After', String(wait)).status(429).json({ error: `Слишком много запросов. Подожди ${wait} с`, code: 'RATE' });
+    next();
+  });
+
+  const open = (req, res, next) => (d.open() || req.v1Key ? next() : fail(res, 401, 'NO_KEY', 'Нужен ключ API (заголовок X-API-Key)'));
+  const needKey = (req, res, next) => (req.v1Key ? next() : fail(res, 401, 'NO_KEY', 'Данные игроков — только по ключу API (заголовок X-API-Key)'));
+  const wrap = fn => async (req, res) => {
+    try { await fn(req, res); } catch (e) {
+      const [status, code] = PLAYER_ERRORS[e?.code] || [500, 'INTERNAL'];
+      if (status === 500) console.warn('[v1]', req.path, e?.message || e);
+      if (!res.headersSent) fail(res, status, code, status === 500 ? 'Ошибка сервера' : String(e?.message || e));
+    }
+  };
+  const itemId = (req, res) => {
+    const id = String(req.params.id || '');
+    if (!ITEM_ID.test(id)) { fail(res, 400, 'BAD_ID', 'Неверный id предмета'); return null; }
+    return id;
+  };
+  const cache = (res, s) => res.set('Cache-Control', s ? `public, max-age=${s}` : 'no-store');
+
+  // ---------- Открытые ----------
+  r.get('/version', open, (req, res) => res.json({ api: V1_VERSION, ...d.version() }));
+  r.get('/status', open, (req, res) => { cache(res, 0); res.json(d.status()); });
+
+  r.get('/items/:id', open, wrap(async (req, res) => {
+    const id = itemId(req, res); if (!id) return;
+    const card = await d.items.card(id, { lvl: int(req.query.lvl, 100, 1, 200) });
+    if (!card) return fail(res, 404, 'NOT_FOUND', 'Предмет не найден');
+    cache(res, 60); res.json(card);
+  }));
+  r.get('/items/:id/obtain', open, wrap(async (req, res) => {
+    const id = itemId(req, res); if (!id) return;
+    const g = await d.items.obtain(id);
+    if (!g) return fail(res, 404, 'NOT_FOUND', 'Предмет не найден');
+    cache(res, 60); res.json(g);
+  }));
+  r.get('/search', open, (req, res) => {
+    const q = String(req.query.q || '').trim().slice(0, 80);
+    if (q.length < 2) return fail(res, 400, 'BAD_QUERY', 'Запрос — от 2 символов (параметр q)');
+    cache(res, 300); res.json({ query: q, items: d.items.search(q, int(req.query.limit, 20, 1, 100)) });
+  });
+
+  const listQuery = q => ({ q: q.q ? String(q.q).slice(0, 80) : '', sort: q.sort ? String(q.sort) : '', cat: q.cat ? String(q.cat) : '', rarity: q.rarity ? String(q.rarity) : '',
+    offset: int(q.offset, 0, 0, 100_000), limit: int(q.limit, 50, 1, 200), ids: q.ids ? String(q.ids).split(',').filter(Boolean).slice(0, 200) : null });
+  r.get('/bazaar', open, (req, res) => { cache(res, 30); res.json(d.market.bazaar(listQuery(req.query))); });
+  r.get('/auctions', open, (req, res) => { cache(res, 30); res.json(d.market.auctions(listQuery(req.query))); });
+  r.get('/market/candles/:id', open, wrap(async (req, res) => {
+    const id = itemId(req, res); if (!id) return;
+    const market = req.query.market === 'ah' ? 'ah' : 'bazaar';
+    const out = await d.market.candles(id, { market, tf: String(req.query.tf || '1h'), limit: int(req.query.limit, 500, 10, 3000), to: req.query.to ? Number(req.query.to) : Infinity });
+    if (!out) return fail(res, 404, 'NOT_FOUND', 'Нет свечей для этого предмета');
+    cache(res, 0); res.json(out);
+  }));
+  r.get('/flips/:kind', open, (req, res) => {
+    const kind = String(req.params.kind);
+    if (!FLIPS.includes(kind)) return fail(res, 404, 'NOT_FOUND', `Флипы бывают: ${FLIPS.join(', ')}`);
+    cache(res, 30);
+    res.json({ kind, items: d.market.flips(kind, { limit: int(req.query.limit, 40, 1, 200), max: req.query.max ? Number(req.query.max) : Infinity }) });
+  });
+  r.get('/refs/lexicon', open, (req, res) => { const l = d.lexicon(); cache(res, l.ready ? 3600 : 0); res.json(l); });
+  r.get('/news', open, (req, res) => { cache(res, 300); res.json(d.news()); });
+
+  // ---------- Игроки (только по ключу) ----------
+  async function view(req, res, { exact = true } = {}) {
+    const name = String(req.params.name || '');
+    if (!NICK.test(name)) { fail(res, 400, 'BAD_NAME', 'Ник Minecraft: латиница, цифры и _, до 16 символов'); return null; }
+    if (d.players.hidden(name)) { fail(res, 404, 'HIDDEN', 'Игрок попросил не показывать его профиль'); return null; }
+    const raw = req.params.profile == null ? '' : String(req.params.profile);
+    const profile = raw === 'selected' ? '' : raw.slice(0, 40);
+    const v = await d.players.view({ player: name, profile });
+    if (!v.member && exact) {
+      if (v.error) fail(res, 503, 'HYPIXEL_UNAVAILABLE', 'Hypixel не ответил, профиль пока не загружен. Повтори через минуту', { retryAfter: 60 });
+      else fail(res, 503, 'LOADING', 'Профиль ещё загружается, повтори через минуту', { retryAfter: 30 });
+      return null;
+    }
+    if (exact && profile && v.missingProfile) { fail(res, 404, 'NO_PROFILE', `У игрока нет профиля «${profile}»`, { profiles: (v.profiles || []).map(p => p.name) }); return null; }
+    return v;
+  }
+  r.get('/players/:name/profiles', needKey, wrap(async (req, res) => {
+    const v = await view(req, res, { exact: false }); if (!v) return;
+    cache(res, 0);
+    res.json({ player: { name: v.player?.name || req.params.name, uuid: v.player?.uuid || null }, profiles: (v.profiles || []).map(p => ({ id: p.id, name: p.name, selected: !!p.selected, mode: p.mode || 'normal', members: p.members || 1 })) });
+  }));
+  for (const [part, fn] of [['summary', 'summary'], ['plan', 'plan'], ['money', 'money']]) {
+    r.get(`/players/:name/profiles/:profile/${part}`, needKey, wrap(async (req, res) => {
+      const v = await view(req, res); if (!v) return;
+      cache(res, 0); res.json(d[fn](v));
+    }));
+  }
+
+  r.use((req, res) => fail(res, 404, 'NOT_FOUND', 'Нет такого адреса в /v1 — список на /api/docs'));
+  return r;
+}

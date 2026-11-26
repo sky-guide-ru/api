@@ -19,6 +19,7 @@ import { EventEmitter } from 'node:events';
 import { createUserStore, generatePassword, MIN_PASSWORD, validNick, fixNick, cleanPastedPassword } from './users.js';
 import { isEn } from '@sky-guide/core/i18n/lang.js';
 import { tx } from '@sky-guide/core/i18n/msg.js';
+import { DEFAULT_KEY_PER_MIN } from './v1/keys.js';
 
 const COOKIE = 'sb_auth';
 const ME_COOKIE = 'sb_me';   // кто вошёл — для интерфейса (не секрет, без него вход не работает)
@@ -54,6 +55,7 @@ function loadSecret(env, dataDir) {
 export function createAuth(env = process.env, o = {}) {
   const dataDir = o.dataDir ?? null;
   const clock = o.clock || (() => Date.now());
+  const apiKeys = o.apiKeys || null; // ключи /v1 для своих бота и мода (src/v1/keys.js): выдаёт владелец на /account
   const sitePassword = String(env.SITE_PASSWORD || '');
   const users = o.users || createUserStore({ file: dataDir ? path.join(dataDir, 'users.json') : null, ownerName: (env.PLAYER || 'Steve').trim(), sitePassword });
   const localBypass = env.AUTH_LOCAL !== '0';
@@ -289,7 +291,7 @@ const meValue = (u, local = false) => encodeURIComponent(JSON.stringify({ n: u.n
     res.set('Cache-Control', 'no-store').type('html').send(accountPage({
       me: req.sbUser, must: req.sbUser.mustChange, flash: f || null, next: f?.next || (req.query.next ? safeNext(String(req.query.next)) : ''), hasPassword: !!users.get(req.sbUser.name)?.hash,
       needConsent: !req.sbUser.owner && !users.get(req.sbUser.name)?.consentAt,
-      users: req.sbUser.admin ? users.list() : null, origin: `${isHttps(req) ? 'https' : 'http'}://${req.headers['x-forwarded-host'] || req.headers.host}`,
+      users: req.sbUser.admin ? users.list() : null, keys: req.sbUser.admin && apiKeys ? apiKeys.list() : null, origin: `${isHttps(req) ? 'https' : 'http'}://${req.headers['x-forwarded-host'] || req.headers.host}`,
     }));
   });
 
@@ -378,6 +380,24 @@ const meValue = (u, local = false) => encodeURIComponent(JSON.stringify({ n: u.n
       users.remove(name);
       events.emit('removed', name); // вместе с аккаунтом стираем историю его чата с советчиком
       back(res, tx`Аккаунт ${name} удалён вместе с историей его чата с советчиком`);
+    } catch (e) { back(res, e.message, 'err'); }
+  });
+
+  // Ключи API (/v1): выдать (ключ показывается один раз) и отозвать — только владелец
+  router.post('/account/api-keys', form, noCross, adminOnly, (req, res) => {
+    if (!apiKeys) return back(res, 'Ключи API на этом сервере выключены', 'err');
+    try {
+      const k = apiKeys.create({ name: req.body?.name, perMin: req.body?.perMin });
+      console.log(`[ключи API] владелец выдал ключ ${k.id} «${k.name}»`);
+      back(res, { key: k.key, name: k.name, perMin: k.perMin }, 'apikey');
+    } catch (e) { back(res, e.message, 'err'); }
+  });
+  router.post('/account/api-keys/revoke', form, noCross, adminOnly, (req, res) => {
+    if (!apiKeys) return back(res, 'Ключи API на этом сервере выключены', 'err');
+    try {
+      const k = apiKeys.revoke(req.body?.id);
+      console.log(`[ключи API] владелец отозвал ключ ${k.id}`);
+      back(res, tx`Ключ «${k.name}» отозван: запросы с ним больше не проходят`);
     } catch (e) { back(res, e.message, 'err'); }
   });
 
@@ -492,13 +512,18 @@ function signedInPage(u, next = '/') {
 
 const when = ts => (ts ? new Date(ts).toLocaleString('ru-RU', { timeZone: process.env.LIVE_TZ || 'Europe/Moscow', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'ни разу');
 
-function accountPage({ me, must = false, flash = null, users = null, hasPassword = true, origin = '', next = '', needConsent = false }) {
+function accountPage({ me, must = false, flash = null, users = null, keys = null, hasPassword = true, origin = '', next = '', needConsent = false }) {
   let fl = '';
   if (flash?.kind === 'password') {
     fl = tx`<div class="flash password">Новый пароль для <b>${esc(flash.msg.name)}</b> (показывается один раз):
       <span class="pw">${esc(flash.msg.password)}</span>
       Отправь другу: сайт <b>${esc(origin)}</b>, ник <b>${esc(flash.msg.name)}</b> и этот пароль. При первом входе сайт попросит придумать свой.
       <button type="button" class="ghost" onclick="navigator.clipboard.writeText(${esc(JSON.stringify(tx`Сайт: ${origin}\nНик: ${flash.msg.name}\nПароль: ${flash.msg.password}\n(это пароль только для сайта, не от Minecraft; после входа придумай свой)`))}).then(()=>this.textContent='Скопировано ✓')">Скопировать для друга</button></div>`;
+  } else if (flash?.kind === 'apikey') {
+    fl = tx`<div class="flash password">Ключ API «${esc(flash.msg.name)}» (показывается один раз, ${flash.msg.perMin} запросов в минуту):
+      <span class="pw" style="font-size:15px;word-break:break-all">${esc(flash.msg.key)}</span>
+      Ключ передаётся в заголовке <code>X-API-Key</code>. Храни его в настройках бота или мода, не в открытом коде.
+      <button type="button" class="ghost" onclick="navigator.clipboard.writeText(${esc(JSON.stringify(flash.msg.key))}).then(()=>this.textContent='Скопировано ✓')">Скопировать ключ</button></div>`;
   } else if (flash) fl = `<div class="flash ${flash.kind === 'err' ? 'err' : flash.kind === 'warn' ? 'warn' : 'ok'}">${esc(flash.msg)}</div>`;
 
   const pwForm = tx`
@@ -545,6 +570,25 @@ function accountPage({ me, must = false, flash = null, users = null, hasPassword
       </div>
     </form>` : '';
 
+  const keyList = keys ? tx`
+    <h2>Ключи API</h2>
+    <p>Ключ открывает данные игроков в <a href="/api/docs/">API /v1</a> для своих клиентов: бота и мода. Предметы и рынок открыты и без ключа. Хранится только хеш: потерянный ключ можно лишь отозвать и выдать новый.</p>
+    ${keys.length ? `<div class="users">${keys.map(k => tx`
+      <div class="u" style="grid-template-columns:1fr">
+        <div>
+          <div><b>${esc(k.name)}</b> <span class="muted">sg_${esc(k.id)}_…</span>${k.revokedAt ? '<span class="chip wait">отозван</span>' : '<span class="chip ok">работает</span>'}</div>
+          <div class="muted">${k.perMin} запросов в минуту · выдан ${when(k.createdAt)} · последний запрос: ${when(k.lastUsedAt)} · всего запросов: ${k.uses}</div>
+          ${k.revokedAt ? '' : tx`<form method="post" action="/account/api-keys/revoke" class="inline" onsubmit="return confirm('Отозвать ключ ${esc(k.name)}? Клиент с ним сразу перестанет получать данные.')"><input type="hidden" name="id" value="${esc(k.id)}"><button type="submit" class="danger" style="width:auto;padding:8px 14px">Отозвать</button></form>`}
+        </div>
+      </div>`).join('')}</div>` : ''}
+    <form method="post" action="/account/api-keys" class="u" style="grid-template-columns:1fr;margin-top:12px">
+      <div class="row">
+        <div><label>Для кого ключ</label><input name="name" required maxlength="40" placeholder="Бот Discord"></div>
+        <div><label>Запросов в минуту</label><input name="perMin" inputmode="numeric" placeholder="${DEFAULT_KEY_PER_MIN}"></div>
+        <button type="submit">Выдать ключ</button>
+      </div>
+    </form>` : '';
+
   return shell(must ? 'Новый пароль' : 'Аккаунт', `
     <div class="who"><img src="${head(me.name)}" alt=""><div><h1>${esc(me.name)}</h1><div class="muted">${me.admin ? 'владелец сайта' : 'друг'}${me.local ? ' · вход с этого ПК без пароля' : ''}</div></div></div>
     ${fl}
@@ -552,5 +596,6 @@ function accountPage({ me, must = false, flash = null, users = null, hasPassword
     ${must ? `<div class="links" style="margin-top:18px"><form method="post" action="/logout"><button type="submit" class="ghost">Это не мой аккаунт — выйти</button></form></div>` : tx`<div class="links" style="margin-top:18px"><a class="btn ghost" href="${esc(next || '/')}">← На сайт</a>
       <form method="post" action="/account/logout-all"><button type="submit" class="ghost">Выйти на всех устройствах</button></form>
       ${me.local ? '' : '<form method="post" action="/logout"><button type="submit" class="ghost">Выйти</button></form>'}</div>`}
-    ${must ? '' : list}`, { wide: !!users && !must });
+    ${must ? '' : list}
+    ${must ? '' : keyList}`, { wide: !!users && !must });
 }
