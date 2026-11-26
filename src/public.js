@@ -9,11 +9,13 @@
 //   YANDEX_RTB_BOTTOM=R-A-1234567-1         id рекламного блока РСЯ внизу страниц
 //   YANDEX_RTB_LANDING=R-A-1234567-2        id блока на стартовой странице (если пусто — берётся BOTTOM)
 //   DONATE_URL=https://boosty.to/...        кнопка «Поддержать» (Boosty, DonationAlerts, ЮMoney и т.п.)
+//   CONTACT_EMAIL=почта@домен.ru            почта для связи: ссылка «Написать на почту» в подвале сайта (и в /legal)
 import fs from 'node:fs';
 
 const RTB = /^R-A-\d{4,12}-\d{1,6}$/;
 const DIGITS = /^\d{4,12}$/;
 const TOKEN = /^[A-Za-z0-9_-]{4,80}$/;
+const EMAIL = /^[^\s@<>"']{1,64}@[^\s@<>"']{1,190}\.[a-z]{2,24}$/i;
 
 /** Безопасная https-ссылка (без кавычек и пробелов) или '' */
 export function safeUrl(u) {
@@ -34,6 +36,7 @@ export function publicConfig(env = process.env) {
     rtb: { bottom, landing },
     donateUrl: safeUrl(env.DONATE_URL),
     publicView: env.PUBLIC_VIEW !== '0',
+    contactEmail: EMAIL.test(String(env.CONTACT_EMAIL || '').trim()) ? env.CONTACT_EMAIL.trim() : '',
   };
 }
 

@@ -10,6 +10,7 @@ test('без настроек в .env ничего чужого не подкл�
   assert.deepEqual(c.rtb, { bottom: '', landing: '' });
   assert.equal(c.metrika, null);
   assert.equal(c.donateUrl, '');
+  assert.equal(c.contactEmail, '');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-pub-'));
   const f = path.join(dir, 'index.html');
   fs.writeFileSync(f, '<html><head><title>x</title></head><body></body></html>');
@@ -36,6 +37,8 @@ test('Метрика, РСЯ, донат и подтверждение Вебм�
   assert.equal(safeUrl('javascript:alert(1)'), '');
   assert.equal(safeUrl('http://x.ru'), '', 'только https');
   assert.equal(publicConfig({ YANDEX_METRIKA_ID: '12;alert(1)' }).metrika, null);
+  assert.equal(publicConfig({ CONTACT_EMAIL: ' help@sky.example.ru ' }).contactEmail, 'help@sky.example.ru');
+  assert.equal(publicConfig({ CONTACT_EMAIL: 'x"><script>@a.ru' }).contactEmail, '', 'мусор вместо почты отброшен');
 });
 
 test('robots.txt и sitemap.xml', () => {
