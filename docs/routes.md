@@ -186,6 +186,7 @@
 - `GET /llms-full.txt`
 - `GET /llms.txt`
 - `GET /og.png`
+- `GET /og-en.png`
 - `GET /privacy`
 - `GET /robots.txt`
 - `GET /sitemap.xml`
