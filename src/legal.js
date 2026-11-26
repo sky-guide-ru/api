@@ -67,7 +67,7 @@ function page(env, active, title, body, { owner = false, lang = 'ru' } = {}) {
     : [['/legal', 'Правовая информация'], ['/privacy', 'Политика конфиденциальности'], ['/consent', 'Согласие на обработку данных'], ['/terms', 'Пользовательское соглашение']];
   const other = en ? `<a href="${active}" hreflang="ru" lang="ru">Русская версия</a>` : `<a href="/en${active}" hreflang="en" lang="en">English</a>`;
   return `<!doctype html><html lang="${en ? 'en' : 'ru'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(title)} · ${en ? 'SkyBlock tracker' : 'SkyBlock трекер'}</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<title>${esc(title)} · Sky Guide</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="alternate" hreflang="ru" href="${active}"><link rel="alternate" hreflang="en" href="/en${active}"><style>${CSS}</style></head>
 <body><main>
 <nav class="top"><a href="${pre}/">${en ? '← Back to the site' : '← На сайт'}</a>${links.map(([h, t]) => `<a href="${pre}${h}"${h === active ? ' class="on"' : ''}>${t}</a>`).join('')}${other}</nav>
@@ -113,7 +113,7 @@ export function legalPage(env = process.env, opts = {}) {
   const op = operatorInfo(env), s = servicesInUse(env);
   return page(env, '/legal', 'Правовая информация', `
 <h2>Неофициальный сайт</h2>
-<p>SkyBlock трекер — неофициальный фанатский сайт о режиме SkyBlock на сервере Hypixel. Сайт <b>не связан</b> с Hypixel Inc., Mojang AB и Microsoft Corporation, <b>не одобрен</b> и <b>не поддерживается</b> ими.</p>
+<p>Sky Guide — неофициальный фанатский сайт о режиме SkyBlock на сервере Hypixel. Сайт <b>не связан</b> с Hypixel Inc., Mojang AB и Microsoft Corporation, <b>не одобрен</b> и <b>не поддерживается</b> ими.</p>
 <p>Это не официальный сервис Minecraft: он не одобрен Mojang и Microsoft и не связан с ними. Сайт не связан с Hypixel Inc. и не одобрен ею.</p>
 <p class="muted">Оригинал оговорки на английском, как требуют правила Mojang: <b>NOT AN OFFICIAL MINECRAFT SERVICE. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.</b> This website is not affiliated with or endorsed by Hypixel Inc.</p>
 <p>Minecraft — товарный знак Mojang Synergies AB. Hypixel и Hypixel SkyBlock — товарные знаки Hypixel Inc. Названия предметов, тексты и изображения из игры принадлежат их правообладателям и используются только чтобы показать игроку его собственные данные и справку по игре.</p>

@@ -15,7 +15,7 @@ export function legalEn(env) {
   const op = operatorInfo(env), s = servicesInUse(env);
   return `
 <h2>Unofficial website</h2>
-<p>SkyBlock tracker is an unofficial fan website about the SkyBlock game mode on the Hypixel server. It is <b>not affiliated with</b>, <b>endorsed by</b> or <b>supported by</b> Hypixel Inc., Mojang AB or Microsoft Corporation.</p>
+<p>Sky Guide is an unofficial fan website about the SkyBlock game mode on the Hypixel server. It is <b>not affiliated with</b>, <b>endorsed by</b> or <b>supported by</b> Hypixel Inc., Mojang AB or Microsoft Corporation.</p>
 <p><b>NOT AN OFFICIAL MINECRAFT SERVICE. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.</b> This website is not affiliated with or endorsed by Hypixel Inc.</p>
 <p>Minecraft is a trademark of Mojang Synergies AB. Hypixel and Hypixel SkyBlock are trademarks of Hypixel Inc. Item names, texts and images from the game belong to their owners and are used only to show players their own data and reference information about the game.</p>
 
