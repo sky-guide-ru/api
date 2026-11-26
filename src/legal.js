@@ -60,6 +60,12 @@ const CSS = `
   .box{padding:12px 14px;border-radius:10px;background:#121a2e;border:1px solid #26314f;margin:12px 0}
 `;
 
+// canonical и hreflang — полными адресами: относительные Google в hreflang не принимает, а без canonical выбирает сам
+function legalLinks(env, active, en) {
+  const o = String(publicConfig(env).siteUrl || '').replace(/\/+$/, '');
+  return `<link rel="canonical" href="${esc(o + (en ? '/en' : '') + active)}"><link rel="alternate" hreflang="ru" href="${esc(o + active)}"><link rel="alternate" hreflang="en" href="${esc(o + '/en' + active)}">`;
+}
+
 function page(env, active, title, body, { owner = false, lang = 'ru' } = {}) {
   const op = operatorInfo(env);
   const en = lang === 'en', pre = en ? '/en' : '';
@@ -68,7 +74,7 @@ function page(env, active, title, body, { owner = false, lang = 'ru' } = {}) {
   const other = en ? `<a href="${active}" hreflang="ru" lang="ru">Русская версия</a>` : `<a href="/en${active}" hreflang="en" lang="en">English</a>`;
   return `<!doctype html><html lang="${en ? 'en' : 'ru'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} · Sky Guide</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<link rel="alternate" hreflang="ru" href="${active}"><link rel="alternate" hreflang="en" href="/en${active}"><style>${CSS}</style></head>
+${legalLinks(env, active, en)}<style>${CSS}</style></head>
 <body><main>
 <nav class="top"><a href="${pre}/">${en ? '← Back to the site' : '← На сайт'}</a>${links.map(([h, t]) => `<a href="${pre}${h}"${h === active ? ' class="on"' : ''}>${t}</a>`).join('')}${other}</nav>
 ${owner && op.missing.length ? `<div class="warn">Это видно только владельцу: заполните в <code>.env</code> ${op.missing.map(esc).join(' и ')} — без этого документы неполные.</div>` : ''}

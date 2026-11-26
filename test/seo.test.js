@@ -95,3 +95,25 @@ test('адрес сайта и IndexNow', async () => {
   assert.equal(await pingIndexNow({ origin: O, urls: ['/', '/guides'], build: 'b1', store, fetchFn }), false, 'повторно ту же сборку не шлём');
   assert.equal(await pingIndexNow({ origin: '', urls: ['/'], build: 'b2', store, fetchFn }), false, 'без SITE_URL не шлём');
 });
+
+test('английская карточка предмета — не копия русской (иначе Google склеивает /en/item/… с /item/…)', () => {
+  const it = allItems().find(x => x?.id && x.nameRu && x.nameRu !== x.nameEn && x.descriptionRu);
+  assert.ok(it, 'в базе есть предмет с русским именем и описанием');
+  const seo = createSeo({ guides: () => [], items: { all: allItems, get: getItemRu, lore: getLoreRu, loreEn: () => ['Original lore line'] } });
+  const ru = seo.pageFor(itemPath(it.id));
+  const en = seo.pageFor(itemPath(it.id), 'en');
+  assert.ok(ru.body.includes(it.nameRu));
+  assert.ok(!en.body.includes(it.nameRu), 'на /en/ нет русского имени');
+  assert.ok(en.body.includes(it.nameEn) && en.body.includes('Original lore line'), 'на /en/ английское имя и лор из игры');
+  assert.equal(en.jsonld[0].inLanguage, 'en');
+});
+
+test('новости на /en/ переводятся по исходной строке со ссылками', () => {
+  const e = NEWS.find(x => x.items.some(i => /\]\(/.test(i)));
+  assert.ok(e, 'есть новость со ссылкой');
+  const seo = createSeo({ guides: () => [], news: [e] });
+  const en = seo.pageFor('/news', 'en');
+  const articles = (en.body.match(/<article>[\s\S]*?<\/article>/g) || []).join('');
+  assert.ok(articles.length > 0);
+  assert.doesNotMatch(articles, /[А-Яа-яЁё]{4,}/);
+});

@@ -1,4 +1,5 @@
 import { tx } from '@sky-guide/core/i18n/msg.js';
+import { getTranslator } from '@sky-guide/core/i18n/lang.js';
 // Готовый текст страниц для поисковиков и нейросетей: HTML (кладётся в <div id="root">, пока сайт грузится) и Markdown (llms-full.txt).
 // Браузер с JavaScript этот текст не показывает (html.js .seo-pre) — сайт сразу рисует свой раздел с тем же содержимым.
 
@@ -67,22 +68,28 @@ export function sectionMd(s) {
 }
 
 /** Карточка предмета → { html, md, description }. */
-export function itemParts(it, lore, price) {
-  const name = it.nameRu && it.nameRu !== it.nameEn ? `${it.nameRu} (${it.nameEn})` : it.nameEn;
-  const kind = [it.rarityRu, (it.typeRu || it.categoryRu || '').toLowerCase()].filter(Boolean).join(' ');
-  const desc = strip(it.descriptionRu || '');
+export function itemParts(it, lore, price, lang = 'ru') {
+  // Английская версия — своя страница, а не копия русской: имя и описание из игры по-английски, русского описания нет.
+  // Иначе Google видит на /en/item/… тот же русский текст и считает страницу дублем /item/… («канонические не совпадают»)
+  const en = lang === 'en';
+  const name = en ? it.nameEn : it.nameRu && it.nameRu !== it.nameEn ? `${it.nameRu} (${it.nameEn})` : it.nameEn;
+  const type = it.typeRu || it.categoryRu || '';
+  const kind = [it.rarityRu, (en ? getTranslator().tr(type) : type).toLowerCase()].filter(Boolean).join(' ');
+  const h = (ru, eng) => (en ? eng : ru);
+  const desc = en ? '' : strip(it.descriptionRu || '');
   const where = (it.whereToGet || []).map(w => strip(w.textRu)).filter(Boolean);
   const loreLines = (lore || []).map(strip);
   const priceLine = price > 0 ? tx`Примерная цена сейчас: ${Math.round(price).toLocaleString('ru-RU')} монет.` : '';
   const description = clip([tx`${name}${kind ? ` — ${kind.toLowerCase()}` : ''} в Hypixel SkyBlock.`, priceLine, desc || where[0] || ''].filter(Boolean).join(' '), 220);
   const html = [
     `<h1>${esc(name)}</h1>`,
-    kind ? `<p>${esc(kind[0].toUpperCase() + kind.slice(1))}${it.categoryRu ? ` · ${esc(it.categoryRu)}` : ''}</p>` : '',
+    en ? `<p>${[it.rarityRu, it.typeRu || it.categoryRu].filter(Boolean).map(x => `<span>${esc(x)}</span>`).join(' · ')}</p>`
+      : kind ? `<p>${esc(kind[0].toUpperCase() + kind.slice(1))}${it.categoryRu ? ` · ${esc(it.categoryRu)}` : ''}</p>` : '',
     desc ? `<p>${esc(desc)}</p>` : '',
     priceLine ? `<p>${esc(priceLine)}</p>` : '',
-    loreLines.length ? tx`<h2>Описание в игре</h2><pre>${esc(loreLines.join('\n'))}</pre>` : '',
-    where.length ? tx`<h2>Как получить</h2><ul>${where.map(w => `<li>${esc(w)}</li>`).join('')}</ul>` : '',
-    (it.requirementsRu || []).length ? tx`<h2>Требования</h2><ul>${it.requirementsRu.map(r => `<li>${esc(strip(r))}</li>`).join('')}</ul>` : '',
+    loreLines.length ? `<h2>${h('Описание в игре', 'In-game description')}</h2><pre>${esc(loreLines.join('\n'))}</pre>` : '',
+    where.length ? `<h2>${h('Как получить', 'How to get')}</h2><ul>${where.map(w => `<li>${esc(w)}</li>`).join('')}</ul>` : '',
+    (it.requirementsRu || []).length ? `<h2>${h('Требования', 'Requirements')}</h2><ul>${it.requirementsRu.map(r => `<li>${esc(strip(r))}</li>`).join('')}</ul>` : '',
   ].join('');
   return { name, html, description };
 }
