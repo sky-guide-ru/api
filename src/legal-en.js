@@ -8,7 +8,7 @@ const who = op => (op.name ? `${esc(op.name)}${op.inn ? ` (Russian taxpayer ID $
 const mail = op => (op.email ? `<a href="mailto:${esc(op.email)}">${esc(op.email)}</a>` : "the site owner's email");
 const site = s => (s.siteUrl ? `the website ${esc(s.siteUrl)}` : 'this website');
 
-export const EN_TITLES = { '/legal': 'Legal information', '/privacy': 'Privacy policy', '/consent': 'Consent to data processing', '/terms': 'Terms of use' };
+export const EN_TITLES = { '/legal': 'Legal information', '/privacy': 'Privacy policy', '/consent': 'Consent to data processing', '/terms': 'Terms of use', '/api-terms': 'API terms' };
 export const EN_NOTE = `<div class="box">This English version is provided for visitors outside Russia. The site owner lives in Russia, so these documents follow Russian law (Federal Law No. 152-FZ "On Personal Data"); visitors in the EU, EEA and UK also have the rights under the GDPR described in <a href="/en/privacy#gdpr">section 9 of the privacy policy</a>. If the English and Russian versions differ, the Russian version prevails, except where the GDPR gives you more protection.</div>`;
 
 export function legalEn(env) {
@@ -149,6 +149,29 @@ export function termsEn(env) {
 ${s.ads || s.donate ? `<h2>5. Ads and support</h2><p>${s.ads ? 'The site shows ads from the Yandex Advertising Network; advertisers and Yandex are responsible for ad content. ' : ''}${s.donate ? 'Donations are voluntary, non-refundable and give no advantages, either in the game or on the site.' : ''}</p>` : ''}
 <h2>${s.ads || s.donate ? 6 : 5}. Other</h2>
 <p>These terms are governed by the law of the Russian Federation. This does not deprive you of the protection of mandatory rules of the law of the country where you live (for example, consumer and data protection law in the EU and UK). The terms may change; a new version takes effect when published here. Send questions and complaints to ${mail(op)}.</p>
+`;
+}
+
+export function apiTermsEn(env) {
+  const op = operatorInfo(env);
+  return `
+<p>Sky Guide has a public API at <code>/v1</code>, documented at <a href="/api/docs/">/api/docs</a>. By using it you agree to these terms and to the site's <a href="/en/terms">terms of use</a>.</p>
+<h2>1. What is open</h2>
+<p>Items, search, Bazaar and auction prices, price trends, flips, the calendar, leaderboards, guides and news are open without a key, up to 120 requests per minute from one address. A key from the site owner only gives its own rate limit.</p>
+<h2>2. Player data</h2>
+<p>Player profiles and their analysis (<code>/v1/players/…</code>, <code>/v1/compare</code>) are available only to Sky Guide's own clients: the site's own bot and mod. Keys with access to player data are not issued to third-party developers, because the <a href="https://developer.hypixel.net/policies" rel="noopener">Hypixel API Policy</a> forbids passing data from their API on to others.</p>
+<h2>3. Terms</h2>
+<ul>
+<li><b>Credit.</b> Next to data from the API, show a visible credit "Data: Sky Guide" with a link to <a href="https://sky-guide.ru">https://sky-guide.ru</a>: in the bot message, the mod window or on the page.</li>
+<li><b>No reselling.</b> Don't sell the API data or access to it, including through keys, proxies or mirrors.</li>
+<li><b>Paid features</b> built on the API only with the site owner's written permission.</li>
+<li>Don't bypass limits or download the data in bulk, and don't present Sky Guide data as your own.</li>
+<li>A key is personal: don't share it with others.</li>
+</ul>
+<h2>4. Violations</h2>
+<p>For breaking these terms the key is revoked, and requests from the address may be limited. The owner may refuse access without giving a reason.</p>
+<h2>5. No warranty</h2>
+<p>The API is provided "as is", without uptime or accuracy guarantees. <code>/v1</code> only gets additions; breaking changes go to <code>/v2</code>. Questions and permission requests: ${mail(op)}.</p>
 `;
 }
 

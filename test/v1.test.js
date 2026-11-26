@@ -213,7 +213,7 @@ test('CORS, только GET и ошибки в одном виде', () => with
 test('без открытого просмотра (PUBLIC_VIEW=0) открытые ручки тоже требуют ключ', () => withV1({ open: () => false }, async (base, d) => {
   const r = await fetch(`${base}/v1/items/HYPERION`);
   assert.equal(r.status, 401);
-  const { key } = d.keys.create({ name: 'Бот' });
+  const { key } = d.keys.create({ name: 'Бот', players: true });
   assert.equal((await fetch(`${base}/v1/items/HYPERION`, { headers: { 'X-API-Key': key } })).status, 200);
 }));
 
@@ -228,7 +228,7 @@ test('данные игроков — только по ключу; неверн
   // неверный ключ на открытой ручке — тоже 403: ошибку в настройках клиента видно сразу
   assert.equal((await fetch(`${base}/v1/version`, { headers: { 'X-API-Key': 'oops' } })).status, 403);
 
-  const k = d.keys.create({ name: 'Мод', perMin: 50 });
+  const k = d.keys.create({ name: 'Мод', players: true, perMin: 50 });
   const h = { 'X-API-Key': k.key };
   const { r } = await get(base, '/v1/players/Steve/profiles', '/v1/players/{name}/profiles', { headers: h });
   assert.equal(r.headers.get('x-ratelimit-limit'), '50');
@@ -269,7 +269,7 @@ test('лимит ключа в минуту и лимит без ключа с �
   checkSchema('/v1/version', 429, await r.json());
   assert.equal((await fetch(`${base}/v1/version`, { headers: { 'x-test-ip': '2.2.2.2' } })).status, 200, 'у другого адреса свой лимит');
   // ключ: свой лимит, не зависит от адреса
-  const { key } = d.keys.create({ name: 'Бот', perMin: 2 });
+  const { key } = d.keys.create({ name: 'Бот', players: true, perMin: 2 });
   const h = { 'X-API-Key': key, 'x-test-ip': '1.1.1.1' };
   assert.equal((await fetch(`${base}/v1/version`, { headers: h })).status, 200);
   assert.equal((await fetch(`${base}/v1/version`, { headers: h })).status, 200);
@@ -280,7 +280,7 @@ test('лимит ключа в минуту и лимит без ключа с �
 test('недостающие аксессуары: по одному на линейку, цена, +MP и где взять', () => withV1({}, async (base, d) => {
   const T = '/v1/players/{name}/profiles/{profile}/accessories/missing';
   await get(base, '/v1/players/Steve/profiles/selected/accessories/missing', T, { status: 401 });
-  const h = { 'X-API-Key': d.keys.create({ name: 'Бот Telegram' }).key };
+  const h = { 'X-API-Key': d.keys.create({ name: 'Бот Telegram', players: true }).key };
   const { body } = await get(base, '/v1/players/Steve/profiles/selected/accessories/missing', T, { headers: h });
   assert.deepEqual(body.items.map(r => r.id), ['FEATHER_RING', 'SPEED_ARTIFACT', 'BAT_TALISMAN'], 'старшая версия линейки, дешевле за 1 MP первыми, без цены — в конце');
   assert.equal(body.all, 3);
@@ -299,7 +299,7 @@ test('недостающие аксессуары: по одному на лин
 }));
 
 test('аксессуары, networth и улучшения предмета по схемам описания', () => withV1({}, async (base, d) => {
-  const h = { 'X-API-Key': d.keys.create({ name: 'Мод' }).key };
+  const h = { 'X-API-Key': d.keys.create({ name: 'Мод', players: true }).key };
   const acc = await get(base, '/v1/players/Steve/profiles/Apple/accessories', '/v1/players/{name}/profiles/{profile}/accessories', { headers: h });
   assert.equal(acc.body.magicalPower, 120);
   assert.deepEqual(acc.body.steps.map(s => [s.kind, s.perMp]), [['buy', 100], ['tier', 500], ['enrich', null]]);
@@ -324,7 +324,7 @@ test('аксессуары, networth и улучшения предмета по
 
 test('сравнение: до 4 игроков, ошибка одного не ломает ответ', () => withV1({}, async (base, d) => {
   await get(base, '/v1/compare?p=Steve', '/v1/compare', { status: 401 });
-  const h = { 'X-API-Key': d.keys.create({ name: 'Бот' }).key };
+  const h = { 'X-API-Key': d.keys.create({ name: 'Бот', players: true }).key };
   const { body } = await get(base, '/v1/compare?p=Steve/Apple&p=Secret&p=Nobody&p=Steve/Banana', '/v1/compare', { headers: h });
   assert.equal(body.players[0].profile, 'Apple');
   assert.deepEqual(body.players.slice(1).map(p => p.code), ['HIDDEN', 'NOT_FOUND', 'NO_PROFILE']);
@@ -360,7 +360,7 @@ test('разделы сайта без ключа: календарь, лиде�
 test('разделы игрока по ключу: снаряжение, коллекции, Bits, гайды, история', () => withV1({}, async (base, d) => {
   const T = s => `/v1/players/{name}/profiles/{profile}/${s}`;
   await get(base, '/v1/players/Steve/profiles/Apple/gear', T('gear'), { status: 401 });
-  const h = { 'X-API-Key': d.keys.create({ name: 'Бот' }).key };
+  const h = { 'X-API-Key': d.keys.create({ name: 'Бот', players: true }).key };
   for (const s of ['gear', 'progress', 'pets', 'map', 'collections', 'minions', 'museum', 'sacks', 'essence', 'maxwell', 'guides']) {
     const { body } = await get(base, `/v1/players/Steve/profiles/Apple/${s}`, T(s), { headers: h });
     assert.equal(body.player, 'Steve');
@@ -375,6 +375,22 @@ test('разделы игрока по ключу: снаряжение, кол�
   assert.equal((await get(base, '/v1/players/Steve/profiles/Apple/history', T('history'), { headers: h })).body.range, 'all');
   assert.equal((await get(base, '/v1/players/Steve/profiles/Apple/history?range=2y', T('history'), { headers: h, status: 400 })).body.code, 'BAD_QUERY');
   assert.equal((await get(base, '/v1/players/Secret/profiles/Apple/museum', T('museum'), { headers: h, status: 404 })).body.code, 'HIDDEN');
+}));
+
+test('данные игроков — только ключам с отметкой players (собственные клиенты); условия в заголовках', () => withV1({}, async (base, d) => {
+  const plain = d.keys.create({ name: 'Чужой бот' });
+  const h = { 'X-API-Key': plain.key };
+  for (const [url, tpl] of [['/v1/players/Steve/profiles', '/v1/players/{name}/profiles'], ['/v1/players/Steve/profiles/Apple/accessories/missing', '/v1/players/{name}/profiles/{profile}/accessories/missing'], ['/v1/compare?p=Steve', '/v1/compare']]) {
+    assert.equal((await get(base, url, tpl, { headers: h, status: 403 })).body.code, 'NO_SCOPE');
+  }
+  assert.equal(d.calls.filter(c => c[0] === 'view').length, 0, 'без отметки профиль не запрашивается');
+  const open = await get(base, '/v1/items/HYPERION', '/v1/items/{id}', { headers: h });
+  assert.equal(open.r.headers.get('x-attribution'), 'Data: Sky Guide (https://sky-guide.ru)');
+  assert.match(open.r.headers.get('link'), /api-terms.*terms-of-service/);
+  d.keys.setPlayers(plain.id, true);
+  await get(base, '/v1/players/Steve/profiles', '/v1/players/{name}/profiles', { headers: h });
+  d.keys.setPlayers(plain.id, false);
+  await get(base, '/v1/players/Steve/profiles', '/v1/players/{name}/profiles', { headers: h, status: 403 });
 }));
 
 // ---------- Swagger ----------

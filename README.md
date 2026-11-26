@@ -24,12 +24,15 @@
 - **Без ключа:** предметы (`/v1/items/{id}`, `/obtain`, `/image`), поиск, Bazaar, аукцион, свечи, цены `quotes`, тренд, лидеры роста,
   доход с Farming, флипы и снайпы, календарь и мэр, лидерборды, гайды, словарь терминов, новости, статус.
   Лимит — `V1_PER_MIN` запросов в минуту с одного адреса (по умолчанию 120).
-- **По ключу** `X-API-Key`: готовые разборы профиля `/v1/players/{name}/profiles/{profile}/…` — `summary`, `plan` (что делать дальше),
-  `money` (заработок), `networth`, `accessories`, `accessories/missing` (недостающие аксессуары с ценой и где взять),
-  `items/{id}/upgrades` (улучшения своего предмета), разделы сайта `gear`, `progress`, `pets`, `map`, `collections`, `minions`,
-  `museum`, `sacks`, `essence`, `bank`, `bits`, `maxwell`, `guides[/{id}]`, `history` — и сравнение `/v1/compare?p=Ник/Профиль`. Только для своих клиентов
-  (бот Telegram или Discord, мод) — так требуют правила Hypixel. Ключи выдаёт и отзывает владелец на странице «Аккаунт», у каждого свой лимит в минуту;
-  в `data/api-keys.json` лежит только хеш ключа.
+- **Данные игроков** — готовые разборы профиля `/v1/players/{name}/profiles/{profile}/…` (`summary`, `plan`, `money`, `networth`,
+  `accessories`, `accessories/missing`, `items/{id}/upgrades`, разделы `gear`, `progress`, `pets`, `map`, `collections`, `minions`,
+  `museum`, `sacks`, `essence`, `bank`, `bits`, `maxwell`, `guides[/{id}]`, `history`) и `/v1/compare` — только собственным
+  клиентам Sky Guide (свой бот, свой мод): ключ `X-API-Key` с отметкой «данные игроков». Правила Hypixel запрещают отдавать
+  данные их API сторонним разработчикам, поэтому отметку ставит только владелец на странице «Аккаунт», по умолчанию её нет
+  (ключ без неё — 403 `NO_SCOPE`). Ключи выдаёт и отзывает владелец, у каждого свой лимит в минуту; в `data/api-keys.json`
+  лежит только хеш ключа.
+- Условия — страница `/api-terms` (`/en/api-terms`): подпись «Данные: Sky Guide» со ссылкой, без перепродажи данных и доступа,
+  платное — только с разрешения. Каждый ответ /v1 несёт `X-Attribution` и `Link: </api-terms>; rel="terms-of-service"`.
 - Язык — `?lang=en` или `X-Lang: en`. Ошибки — `{ "error", "code" }`.
 
 Сначала описание, потом код: `test/v1.test.js` проверяет, что каждая ручка `/v1` есть в описании и наоборот, а ответы проходят

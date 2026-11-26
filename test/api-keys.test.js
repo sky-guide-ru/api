@@ -19,11 +19,20 @@ test('ключ: в файле только хеш, проверка, отзыв'
   const disk = fs.readFileSync(path.join(dir, 'api-keys.json'), 'utf8');
   assert.ok(!disk.includes(k.key.split('_').slice(2).join('_')), 'секрет ключа не лежит на диске');
   assert.equal(JSON.parse(disk).keys[0].hash.length, 64);
-  assert.deepEqual(keys.check(k.key), { ok: true, key: { id: k.id, name: 'Бот Discord', perMin: 30 } });
+  assert.deepEqual(keys.check(k.key), { ok: true, key: { id: k.id, name: 'Бот Discord', perMin: 30, players: false } }, 'данные игроков по умолчанию закрыты');
+  assert.equal(keys.setPlayers(k.id, true).players, true);
+  assert.equal(keys.check(k.key).key.players, true);
+  keys.setPlayers(k.id, false);
+  assert.throws(() => keys.setPlayers('nope', true), /Нет такого ключа/);
+  // старый ключ без поля players (выдан до отметки) — данных игроков не получает
+  const raw = JSON.parse(fs.readFileSync(path.join(dir, 'api-keys.json'), 'utf8'));
+  delete raw.keys[0].players;
+  fs.writeFileSync(path.join(dir, 'api-keys.json'), JSON.stringify(raw));
+  assert.equal(createKeyStore({ dataDir: dir }).check(k.key).key.players, false);
   assert.equal(keys.check(k.key.slice(0, -1) + (k.key.endsWith('A') ? 'B' : 'A')).code, 'BAD_KEY');
   assert.equal(keys.check('').code, 'BAD_KEY');
   assert.equal(keys.check(`sg_${k.id}_short`).code, 'BAD_KEY');
-  assert.equal(keys.list()[0].uses, 1);
+  assert.ok(keys.list()[0].uses >= 1);
   assert.ok(!('hash' in keys.list()[0]), 'список без хешей');
   keys.revoke(k.id);
   assert.equal(keys.check(k.key).code, 'REVOKED');
@@ -76,6 +85,7 @@ test('владелец выдаёт ключ на /account (виден один 
     const key = /sg_[A-Za-z0-9]{10}_[A-Za-z0-9_-]{32}/.exec(shown)?.[0];
     assert.ok(key, 'ключ показан после выдачи');
     assert.equal(apiKeys.check(key).key.perMin, 90);
+    assert.equal(apiKeys.check(key).key.players, false, 'без галочки данные игроков закрыты');
     const again = await fetch(base + made.headers.get('location'), { headers: { ...viaTunnel, cookie } }).then(r => r.text());
     assert.ok(!again.includes(key), 'второй раз ключ не показывается');
     assert.match(again, /Бот Discord/);
@@ -86,6 +96,14 @@ test('владелец выдаёт ключ на /account (виден один 
     assert.equal(apiKeys.list().length, 1);
 
     const id = apiKeys.list()[0].id;
+    await formPost(base, '/account/api-keys/players', { id, on: '1' }, { cookie });
+    assert.equal(apiKeys.check(key).key.players, true, 'владелец открыл данные игроков');
+    assert.equal((await formPost(base, '/account/api-keys/players', { id, on: '0' }, { cookie, 'sec-fetch-site': 'cross-site' })).status, 403);
+    await formPost(base, '/account/api-keys/players', { id, on: '0' }, { cookie });
+    assert.equal(apiKeys.check(key).key.players, false);
+    const mine = await formPost(base, '/account/api-keys', { name: 'Свой мод', players: '1' }, { cookie });
+    const key2 = /sg_[A-Za-z0-9]{10}_[A-Za-z0-9_-]{32}/.exec(await fetch(base + mine.headers.get('location'), { headers: { ...viaTunnel, cookie } }).then(r => r.text()))?.[0];
+    assert.equal(apiKeys.check(key2).key.players, true, 'галочка при выдаче');
     await formPost(base, '/account/api-keys/revoke', { id }, { cookie });
     assert.equal(apiKeys.check(key).code, 'REVOKED');
   } finally { srv.close(); }

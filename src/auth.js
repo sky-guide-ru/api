@@ -387,9 +387,18 @@ const meValue = (u, local = false) => encodeURIComponent(JSON.stringify({ n: u.n
   router.post('/account/api-keys', form, noCross, adminOnly, (req, res) => {
     if (!apiKeys) return back(res, 'Ключи API на этом сервере выключены', 'err');
     try {
-      const k = apiKeys.create({ name: req.body?.name, perMin: req.body?.perMin });
-      console.log(`[ключи API] владелец выдал ключ ${k.id} «${k.name}»`);
+      // Данные игроков — только своим клиентам (свой бот, свой мод): галочка по умолчанию снята
+      const k = apiKeys.create({ name: req.body?.name, perMin: req.body?.perMin, players: req.body?.players === '1' });
+      console.log(`[ключи API] владелец выдал ключ ${k.id} «${k.name}»${k.players ? ' с данными игроков' : ''}`);
       back(res, { key: k.key, name: k.name, perMin: k.perMin }, 'apikey');
+    } catch (e) { back(res, e.message, 'err'); }
+  });
+  router.post('/account/api-keys/players', form, noCross, adminOnly, (req, res) => {
+    if (!apiKeys) return back(res, 'Ключи API на этом сервере выключены', 'err');
+    try {
+      const k = apiKeys.setPlayers(req.body?.id, req.body?.on === '1');
+      console.log(`[ключи API] владелец ${k.players ? 'открыл' : 'закрыл'} ключу ${k.id} данные игроков`);
+      back(res, k.players ? tx`Ключу «${k.name}» открыты данные игроков` : tx`Ключу «${k.name}» закрыты данные игроков`);
     } catch (e) { back(res, e.message, 'err'); }
   });
   router.post('/account/api-keys/revoke', form, noCross, adminOnly, (req, res) => {
@@ -572,12 +581,13 @@ function accountPage({ me, must = false, flash = null, users = null, keys = null
 
   const keyList = keys ? tx`
     <h2>Ключи API</h2>
-    <p>Ключ открывает данные игроков в <a href="/api/docs/">API /v1</a> для своих клиентов: бота и мода. Предметы и рынок открыты и без ключа. Хранится только хеш: потерянный ключ можно лишь отозвать и выдать новый.</p>
+    <p>Ключ даёт свой лимит запросов к <a href="/api/docs/">API /v1</a>. Данные игроков — только ключам с галочкой «данные игроков»: ставьте её лишь своим клиентам (свой бот, свой мод). Правила Hypixel запрещают отдавать данные их API сторонним разработчикам. Условия для всех — на странице <a href="/api-terms">API и правила</a>. Хранится только хеш: потерянный ключ можно лишь отозвать и выдать новый.</p>
     ${keys.length ? `<div class="users">${keys.map(k => tx`
       <div class="u" style="grid-template-columns:1fr">
         <div>
-          <div><b>${esc(k.name)}</b> <span class="muted">sg_${esc(k.id)}_…</span>${k.revokedAt ? '<span class="chip wait">отозван</span>' : '<span class="chip ok">работает</span>'}</div>
+          <div><b>${esc(k.name)}</b> <span class="muted">sg_${esc(k.id)}_…</span>${k.revokedAt ? '<span class="chip wait">отозван</span>' : '<span class="chip ok">работает</span>'}${k.players ? '<span class="chip ok">данные игроков</span>' : ''}</div>
           <div class="muted">${k.perMin} запросов в минуту · выдан ${when(k.createdAt)} · последний запрос: ${when(k.lastUsedAt)} · всего запросов: ${k.uses}</div>
+          ${k.revokedAt ? '' : `<form method="post" action="/account/api-keys/players" class="inline"><input type="hidden" name="id" value="${esc(k.id)}"><input type="hidden" name="on" value="${k.players ? '0' : '1'}"><button type="submit" class="ghost" style="width:auto;padding:8px 14px">${k.players ? 'Закрыть данные игроков' : 'Открыть данные игроков'}</button></form>`}
           ${k.revokedAt ? '' : tx`<form method="post" action="/account/api-keys/revoke" class="inline" onsubmit="return confirm('Отозвать ключ ${esc(k.name)}? Клиент с ним сразу перестанет получать данные.')"><input type="hidden" name="id" value="${esc(k.id)}"><button type="submit" class="danger" style="width:auto;padding:8px 14px">Отозвать</button></form>`}
         </div>
       </div>`).join('')}</div>` : ''}
@@ -585,6 +595,7 @@ function accountPage({ me, must = false, flash = null, users = null, keys = null
       <div class="row">
         <div><label>Для кого ключ</label><input name="name" required maxlength="40" placeholder="Бот Telegram, бот Discord или мод"></div>
         <div><label>Запросов в минуту</label><input name="perMin" inputmode="numeric" placeholder="${DEFAULT_KEY_PER_MIN}"></div>
+        <div><label><input type="checkbox" name="players" value="1" style="width:auto"> Данные игроков (только свой бот или мод)</label></div>
         <button type="submit">Выдать ключ</button>
       </div>
     </form>` : '';

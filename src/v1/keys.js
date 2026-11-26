@@ -1,5 +1,8 @@
-// Ключи доступа к /v1 для своих клиентов (бот, мод): заголовок X-API-Key.
-// Данные игроков /v1 отдаёт только по ключу — так требуют правила Hypixel (нельзя раздавать их данные сторонним разработчикам).
+// Ключи доступа к /v1: заголовок X-API-Key. Выдаёт и отзывает только владелец сайта на странице «Аккаунт».
+// Обычный ключ — свой лимит запросов к открытым ручкам (предметы, рынок, гайды…).
+// Данные игроков (/v1/players/…, /v1/compare) — только ключам с отметкой players: это собственные клиенты Sky Guide
+// (свой бот, свой мод). Правила Hypixel запрещают отдавать данные их API сторонним разработчикам,
+// поэтому отметку ставит только владелец, по умолчанию её нет, и старые ключи без неё данных игроков не получают.
 //
 // Ключ вида sg_<id>_<секрет>. В data/api-keys.json лежат только id, название, лимит и sha256 секрета:
 // сам ключ показывается один раз при выдаче, потом его не узнать даже владельцу (можно только отозвать и выдать новый).
@@ -50,23 +53,32 @@ export function createKeyStore(o = {}) {
     try { mtime = fs.statSync(file).mtimeMs; } catch { mtime = -1; }
     flushAt = clock();
   }
-  const pub = k => ({ id: k.id, name: k.name, perMin: k.perMin, createdAt: k.createdAt, lastUsedAt: used.get(k.id)?.at || k.lastUsedAt || null, uses: (k.uses || 0) + (used.get(k.id)?.n || 0), revokedAt: k.revokedAt || null });
+  const pub = k => ({ id: k.id, name: k.name, perMin: k.perMin, players: k.players === true, createdAt: k.createdAt, lastUsedAt: used.get(k.id)?.at || k.lastUsedAt || null, uses: (k.uses || 0) + (used.get(k.id)?.n || 0), revokedAt: k.revokedAt || null });
 
   return {
     file,
     /** Все ключи без секретов: для страницы «Аккаунт» */
     list() { load(); return keys.map(pub); },
     /** Выдать ключ. Возвращает { key, ...описание } — key показать один раз */
-    create({ name, perMin } = {}) {
+    create({ name, perMin, players = false } = {}) {
       load();
       const title = String(name || '').replace(/\s+/g, ' ').trim().slice(0, 40);
-      if (!title) throw new Error('Назови ключ: для кого он (например, «Бот Discord»)');
+      if (!title) throw new Error('Назови ключ: для кого он (например, «Мой бот Telegram»)');
       const id = randomId();
       const secret = crypto.randomBytes(24).toString('base64url');
-      const k = { id, name: title, perMin: cleanLimit(perMin), hash: sha(secret), createdAt: clock(), lastUsedAt: null, uses: 0, revokedAt: null };
+      const k = { id, name: title, perMin: cleanLimit(perMin), players: players === true, hash: sha(secret), createdAt: clock(), lastUsedAt: null, uses: 0, revokedAt: null };
       keys.push(k);
       save();
       return { key: `sg_${id}_${secret}`, ...pub(k) };
+    },
+    /** Открыть или закрыть ключу данные игроков (только собственные клиенты Sky Guide) */
+    setPlayers(id, on) {
+      load();
+      const k = keys.find(x => x.id === String(id || ''));
+      if (!k) throw new Error('Нет такого ключа');
+      k.players = on === true;
+      save();
+      return pub(k);
     },
     /** Отозвать ключ: запросы с ним сразу получают 403 */
     revoke(id) {
@@ -92,7 +104,7 @@ export function createKeyStore(o = {}) {
       u.at = clock(); u.n++;
       used.set(k.id, u);
       if (clock() - flushAt > 10 * 60_000) { try { save(); } catch (e) { console.warn('[ключи API]', e.message); } }
-      return { ok: true, key: { id: k.id, name: k.name, perMin: k.perMin } };
+      return { ok: true, key: { id: k.id, name: k.name, perMin: k.perMin, players: k.players === true } };
     },
     /** Записать счётчики использования на диск (при остановке сервера) */
     flush() { if (used.size) { load(); save(); } },

@@ -112,7 +112,7 @@ export function robotsTxt(env = process.env, origin = '') {
   const block = agents => [...agents.map(a => `User-agent: ${a}`), 'Allow: /', ...CLOSED.map(p => `Disallow: ${p}`)];
   return [
     '# Сайт открыт для поисковиков и нейросетей. Профили игроков (?player=) не индексируются.',
-    ...block(['*']), 'Allow: /privacy', 'Allow: /terms', 'Allow: /legal', '',
+    ...block(['*']), 'Allow: /privacy', 'Allow: /terms', 'Allow: /legal', 'Allow: /api-terms', '',
     ...block(BOTS),
     // Яндекс: адреса с ?player= — это тот же сайт с чужим профилем, отдельно их не обходить (директива действует в любом месте файла)
     'Clean-param: player&profile', '',

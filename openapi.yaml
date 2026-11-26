@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Sky Guide API
-  version: 1.2.0
+  version: 1.3.0
   summary: Предметы, рынок и расчёты по Hypixel SkyBlock на русском и английском
   description: |
     Открытый API сайта [sky-guide.ru](https://sky-guide.ru). Все ответы — расчёты и переводы Sky Guide,
@@ -11,17 +11,22 @@ info:
     лидерборды, гайды, словарь терминов, новости и статус.
     Лимит — 120 запросов в минуту с одного адреса.
 
-    **Данные игроков** (`/v1/players/...` и `/v1/compare`) — только по ключу в заголовке `X-API-Key`, для своих клиентов
-    Sky Guide (бот Telegram или Discord, мод). Это готовые разборы, как на сайте: план «что делать», недостающие
-    аксессуары с ценами и где взять, Magical Power, networth, заработок, улучшения предметов, сравнение и все разделы
-    сайта по игроку (снаряжение, коллекции, миньоны, музей, мешки, эссенции, Bank, Bits, Maxwell, гайды, история графиков). Так требуют правила Hypixel: нельзя раздавать их данные сторонним разработчикам.
-    Ключи выдаёт владелец сайта, у каждого ключа свой лимит в минуту.
+    **Данные игроков** (`/v1/players/...` и `/v1/compare`) — только собственным клиентам Sky Guide (бот и мод самого
+    сайта): ключ в заголовке `X-API-Key` с отметкой «данные игроков», её ставит только владелец сайта. Сторонним
+    разработчикам такие ключи не выдаются: правила API Hypixel запрещают передавать данные их API другим.
+    Ключ без отметки получает на этих ручках 403 `NO_SCOPE`. Ключи выдаёт владелец сайта, у каждого свой лимит в минуту.
+
+    **Условия** ([API и правила](https://sky-guide.ru/api-terms), [API terms](https://sky-guide.ru/en/api-terms)):
+    рядом с данными — видимая подпись «Данные: Sky Guide» со ссылкой на https://sky-guide.ru; нельзя перепродавать
+    данные и доступ; платные функции на основе API — только с разрешения владельца; за нарушения ключ отзывается.
+    Каждый ответ несёт заголовки `X-Attribution` и `Link: </api-terms>; rel="terms-of-service"`.
 
     **Язык.** По умолчанию русский; английский — `?lang=en` или заголовок `X-Lang: en`.
     Игровые названия (предметы, скиллы, острова) в обоих языках английские, как в игре.
 
     **Ошибки** приходят в одном виде: `{ "error": "текст", "code": "КОД" }`.
     Ломающие изменения — только в `/v2`; `/v1` после этого живёт с пометкой deprecated.
+  termsOfService: https://sky-guide.ru/api-terms
   license:
     name: AGPL-3.0-only
     url: https://www.gnu.org/licenses/agpl-3.0.html
@@ -38,7 +43,7 @@ tags:
   - name: Рынок
   - name: Справка
   - name: Игроки
-    description: Только по ключу `X-API-Key`.
+    description: Только собственным клиентам Sky Guide — ключ `X-API-Key` с отметкой «данные игроков».
 
 paths:
   /v1/version:
@@ -1128,7 +1133,7 @@ components:
       type: apiKey
       in: header
       name: X-API-Key
-      description: Ключ вида `sg_xxxxxxxxxx_…`. Выдаёт владелец сайта для своих клиентов (бот, мод).
+      description: Ключ вида `sg_xxxxxxxxxx_…`. Выдаёт владелец сайта. Данные игроков — только ключам с отметкой «данные игроков» (собственные клиенты Sky Guide).
 
   headers:
     RateLimit:
@@ -1203,7 +1208,7 @@ components:
       description: Нужен ключ API
       content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
     BadKey:
-      description: Неверный или отозванный ключ
+      description: Неверный или отозванный ключ (BAD_KEY, REVOKED) или ключ без доступа к данным игроков (NO_SCOPE)
       content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
     Rate:
       description: Превышен лимит запросов; Retry-After — через сколько секунд можно снова
@@ -1222,7 +1227,7 @@ components:
         error: { type: string, description: Понятный текст ошибки }
         code:
           type: string
-          enum: [BAD_ID, BAD_QUERY, BAD_NAME, NOT_FOUND, NO_PROFILE, HIDDEN, NO_DATA, NO_KEY, BAD_KEY, REVOKED, RATE, METHOD, LOADING, HYPIXEL_LIMIT, HYPIXEL_UNAVAILABLE, INTERNAL]
+          enum: [BAD_ID, BAD_QUERY, BAD_NAME, NOT_FOUND, NO_PROFILE, HIDDEN, NO_DATA, NO_KEY, BAD_KEY, NO_SCOPE, REVOKED, RATE, METHOD, LOADING, HYPIXEL_LIMIT, HYPIXEL_UNAVAILABLE, INTERNAL]
         profiles: { type: array, items: { type: string }, description: Для NO_PROFILE — какие профили есть }
         retryAfter: { type: integer, description: Для LOADING — через сколько секунд повторить }
 
