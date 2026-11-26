@@ -107,11 +107,13 @@ const apiKeys = createKeyStore({ dataDir: config.dataDir });
 const auth = createAuth(process.env, { dataDir: config.dataDir, apiKeys });
 // Поиск и нейросети: обычные адреса открытых разделов (/guides/fishing, /item/HYPERION) с готовым текстом (server/seo)
 const guideDeps = { priceOf, priceInfo, itemName: id => itemName(id)?.replace(/§./g, ''), get constants() { return neu.constants; }, get items() { return neu.items; } };
+// Лор питомцев — с числами для 100 уровня, как на самой странице, а не с {STRENGTH} и {0}
+const seoLore = (id, lore) => (lore && /;\d$/.test(id) ? fillPetLore(id, '', lore, neu.constants?.petnums).lore : lore);
 const seo = createSeo({
   guides: () => inLang('ru', () => buildGuides({ guest: true, inv: {} }, {}, guideDeps)), // кэш общий — собираем по-русски // как для гостя без ника: никаких профилей
   groups: GUIDE_GROUPS,
   news: NEWS,
-  items: { all: allItems, get: id => getItemRu(id), lore: id => getLoreRu(id), loreEn: id => getLoreEn(id) },
+  items: { all: allItems, get: id => getItemRu(id), lore: id => seoLore(id, getLoreRu(id)), loreEn: id => seoLore(id, getLoreEn(id)) },
   priceOf,
 });
 const siteOrigin = req => originOf(publicConfig(process.env).siteUrl, req.get('host'));
