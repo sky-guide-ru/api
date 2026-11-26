@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Sky Guide API
-  version: 1.0.0
+  version: 1.1.0
   summary: Предметы, рынок и расчёты по Hypixel SkyBlock на русском и английском
   description: |
     Открытый API сайта [sky-guide.ru](https://sky-guide.ru). Все ответы — расчёты и переводы Sky Guide,
@@ -10,8 +10,9 @@ info:
     **Без ключа** открыты предметы, поиск, Bazaar, аукцион, свечи, флипы, словарь терминов, новости и статус.
     Лимит — 120 запросов в минуту с одного адреса.
 
-    **Данные игроков** (`/v1/players/...`) — только по ключу в заголовке `X-API-Key`, для своих клиентов
-    Sky Guide (бот, мод). Так требуют правила Hypixel: нельзя раздавать их данные сторонним разработчикам.
+    **Данные игроков** (`/v1/players/...` и `/v1/compare`) — только по ключу в заголовке `X-API-Key`, для своих клиентов
+    Sky Guide (бот Telegram или Discord, мод). Это готовые разборы, как на сайте: план «что делать», недостающие
+    аксессуары с ценами и где взять, Magical Power, networth, заработок, улучшения предметов, сравнение. Так требуют правила Hypixel: нельзя раздавать их данные сторонним разработчикам.
     Ключи выдаёт владелец сайта, у каждого ключа свой лимит в минуту.
 
     **Язык.** По умолчанию русский; английский — `?lang=en` или заголовок `X-Lang: en`.
@@ -367,6 +368,14 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Nick'
         - $ref: '#/components/parameters/Profile'
+        - name: cat
+          in: query
+          description: Только шаги этого раздела (поле cat шага, без учёта регистра)
+          schema: { type: string }
+        - name: limit
+          in: query
+          description: Сколько первых шагов отдать
+          schema: { type: integer, minimum: 1, maximum: 100 }
         - $ref: '#/components/parameters/Lang'
       responses:
         '200':
@@ -404,6 +413,153 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '429': { $ref: '#/components/responses/Rate' }
         '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/players/{name}/profiles/{profile}/accessories:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerAccessories
+      summary: Аксессуары и Magical Power
+      description: 'Magical Power, свои аксессуары с пробелами (следующий tier, Recombobulator, Enrichment) и шаги «что сделать дальше» по цене за 1 MP — как в разделе «Аксессуары» сайта.'
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - name: limit
+          in: query
+          description: Сколько шагов отдать
+          schema: { type: integer, minimum: 1, maximum: 200, default: 20 }
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Аксессуары и Magical Power
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Accessories' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/players/{name}/profiles/{profile}/accessories/missing:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerMissingAccessories
+      summary: Недостающие аксессуары
+      description: 'Аксессуары, которых нет в Accessory Bag (по одному на линейку Talisman → Ring → Artifact), с ценой, +MP, ценой за 1 MP и где взять. Готовый ответ для команды вроде /missing.'
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - name: sort
+          in: query
+          description: 'Порядок: perMp — дешевле за 1 MP (по умолчанию), price — дешевле, mp — больше MP'
+          schema: { type: string, enum: [perMp, price, mp], default: perMp }
+        - name: maxPrice
+          in: query
+          description: Не дороже стольких монет
+          schema: { type: number, minimum: 0 }
+        - name: upgrades
+          in: query
+          description: 0 — без апгрейдов своих аксессуаров (только новые линейки)
+          schema: { type: string, enum: ['1', '0'], default: '1' }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Недостающие аксессуары
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MissingAccessories' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/players/{name}/profiles/{profile}/networth:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerNetworth
+      summary: Networth
+      description: 'Стоимость профиля по частям (вещи, питомцы, мешки, эссенции, музей, монеты) и самые дорогие вещи и питомцы по текущим ценам.'
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - name: limit
+          in: query
+          description: Сколько дорогих вещей и питомцев отдать
+          schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Networth
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Networth' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/players/{name}/profiles/{profile}/items/{id}/upgrades:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerItemUpgrades
+      summary: Улучшения своего предмета
+      description: 'Все экземпляры предмета у игрока (до 12, дорогие первыми) и чек-лист улучшений для каждого: звёзды, чары, Recombobulator, камни, reforge — с ценами. Нет предмета — пустой copies.'
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - $ref: '#/components/parameters/ItemId'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Улучшения своего предмета
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ItemUpgrades' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/compare:
+    get:
+      tags: [Игроки]
+      operationId: comparePlayers
+      summary: Сравнение профилей
+      description: 'Сводки до 4 игроков рядом — как на странице «Сравнение». Ошибка одного игрока (скрыт, нет профиля) не ломает ответ — у него error и code.'
+      security: [{ ApiKey: [] }]
+      parameters:
+        - name: p
+          in: query
+          required: true
+          description: '`Ник` или `Ник/Профиль`, от 1 до 4 раз: `?p=Steve&p=Alex/Banana`'
+          style: form
+          explode: true
+          schema: { type: array, minItems: 1, maxItems: 4, items: { type: string } }
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Сравнение
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Compare' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '429': { $ref: '#/components/responses/Rate' }
 
 components:
   securitySchemes:
@@ -473,7 +629,7 @@ components:
       description: Неверный параметр
       content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
     NotFound:
-      description: Не найдено (предмет, игрок, профиль) или игрок попросил не показывать профиль (HIDDEN)
+      description: Не найдено (предмет, игрок, профиль), игрок попросил не показывать профиль (HIDDEN) или у профиля нет этих данных (NO_DATA)
       content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
     NoKey:
       description: Нужен ключ API
@@ -498,7 +654,7 @@ components:
         error: { type: string, description: Понятный текст ошибки }
         code:
           type: string
-          enum: [BAD_ID, BAD_QUERY, BAD_NAME, NOT_FOUND, NO_PROFILE, HIDDEN, NO_KEY, BAD_KEY, REVOKED, RATE, METHOD, LOADING, HYPIXEL_LIMIT, HYPIXEL_UNAVAILABLE, INTERNAL]
+          enum: [BAD_ID, BAD_QUERY, BAD_NAME, NOT_FOUND, NO_PROFILE, HIDDEN, NO_DATA, NO_KEY, BAD_KEY, REVOKED, RATE, METHOD, LOADING, HYPIXEL_LIMIT, HYPIXEL_UNAVAILABLE, INTERNAL]
         profiles: { type: array, items: { type: string }, description: Для NO_PROFILE — какие профили есть }
         retryAfter: { type: integer, description: Для LOADING — через сколько секунд повторить }
 
@@ -835,3 +991,186 @@ components:
             properties:
               id: { type: string }
               title: { type: string }
+
+    Accessories:
+      type: object
+      required: [player, profile, updatedAt, magicalPower, count, steps, owned]
+      properties:
+        player: { $ref: '#/components/schemas/PlayerRef' }
+        profile: { type: [string, 'null'] }
+        updatedAt: { type: number }
+        magicalPower: { type: integer, description: Magical Power по сумке сейчас }
+        highestMagicalPower: { type: [integer, 'null'], description: Наибольший Magical Power, который видел Hypixel }
+        count: { type: integer, description: Аксессуаров в сумке }
+        missing: { type: integer, description: Сколько аксессуаров ещё нет (все версии) }
+        recomb:
+          type: object
+          properties:
+            left: { type: integer, description: Аксессуаров без Recombobulator, где он даёт MP }
+            mp: { type: number, description: Сколько MP дадут все Recombobulator }
+            price: { type: [integer, 'null'] }
+        enrichPrice: { type: [integer, 'null'], description: Цена Accessory Enrichment }
+        steps:
+          type: array
+          description: Что сделать дальше — дешевле за 1 MP первыми
+          items:
+            type: object
+            required: [kind, id, mp]
+            properties:
+              kind: { type: string, enum: [buy, tier, recomb, enrich], description: 'Купить, следующий tier, Recombobulator, Enrichment' }
+              id: { type: string, description: SkyBlock ID (для tier — свой аксессуар) }
+              target: { type: [string, 'null'], description: Для tier — во что улучшить }
+              name: { type: [string, 'null'] }
+              rarity: { $ref: '#/components/schemas/Rarity' }
+              mp: { type: number }
+              cost: { type: [integer, 'null'] }
+              perMp: { type: [integer, 'null'] }
+        owned:
+          type: array
+          items:
+            type: object
+            required: [id, name, mp, active]
+            properties:
+              id: { type: string }
+              name: { type: string }
+              rarity: { $ref: '#/components/schemas/Rarity' }
+              mp: { type: number }
+              active: { type: boolean, description: Даёт MP (старшая версия линейки в сумке его перекрывает) }
+              recomb: { type: boolean }
+              reforge: { type: [string, 'null'] }
+              enrichment: { type: [string, 'null'] }
+              next: { type: [string, 'null'], description: Следующий tier линейки }
+              canRecomb: { type: boolean }
+              value: { type: integer }
+
+    MissingAccessories:
+      type: object
+      required: [player, profile, updatedAt, all, total, items]
+      properties:
+        player: { $ref: '#/components/schemas/PlayerRef' }
+        profile: { type: [string, 'null'] }
+        updatedAt: { type: number }
+        magicalPower: { type: integer }
+        all: { type: integer, description: Недостающих линеек без фильтров }
+        total:
+          type: object
+          description: Итог по списку после фильтров (до limit)
+          properties:
+            count: { type: integer }
+            mp: { type: number, description: Сколько MP дадут все }
+            price: { type: integer, description: Сколько стоят все с ценой }
+            unpriced: { type: integer, description: Сколько без цены на рынке }
+        items:
+          type: array
+          items:
+            type: object
+            required: [id, name, mp, price, how, where]
+            properties:
+              id: { type: string }
+              name: { type: string }
+              rarity: { $ref: '#/components/schemas/Rarity' }
+              mp: { type: number, description: Сколько Magical Power прибавит }
+              price: { type: [integer, 'null'], description: 'Цена; для апгрейда — доплата за вычетом своей версии' }
+              perMp: { type: [integer, 'null'], description: Монет за 1 MP }
+              upgradeFrom: { type: [string, 'null'], description: Своя младшая версия, если это апгрейд }
+              tier: { type: [array, 'null'], items: { type: integer }, description: '[место в линейке, всего]' }
+              stat: { type: [string, 'null'], description: Главный стат }
+              how: { type: [string, 'null'], enum: [npc, craft, drop, da, bazaar, ah, null], description: 'Как получить: NPC, крафт, дроп, Dark Auction, Bazaar, аукцион' }
+              howText: { type: [string, 'null'] }
+              req: { type: [string, 'null'], description: Невыполненное требование рецепта }
+              where:
+                type: array
+                description: Где взять (до 3 способов)
+                items:
+                  type: object
+                  required: [text]
+                  properties:
+                    text: { type: string }
+                    coins: { type: [integer, 'null'], description: Цена способа в монетах, если считается }
+
+    Networth:
+      type: object
+      required: [player, profile, updatedAt, networth, topItems, topPets]
+      properties:
+        player: { $ref: '#/components/schemas/PlayerRef' }
+        profile: { type: [string, 'null'] }
+        updatedAt: { type: number }
+        networth:
+          type: object
+          required: [total]
+          additionalProperties: { type: integer }
+          properties:
+            total: { type: integer }
+            items: { type: integer }
+            pets: { type: integer }
+            sacks: { type: integer }
+            essence: { type: integer }
+            museum: { type: integer }
+            coins: { type: integer }
+        purse: { type: integer }
+        bank: { type: [integer, 'null'] }
+        topItems:
+          type: array
+          items:
+            type: object
+            required: [id, name, value]
+            properties:
+              id: { type: string }
+              name: { type: string }
+              rarity: { $ref: '#/components/schemas/Rarity' }
+              value: { type: integer }
+              where: { type: [string, 'null'], description: 'Где лежит: Inventory, Ender Chest, Wardrobe…' }
+        topPets:
+          type: array
+          items:
+            type: object
+            required: [id, type, level, value]
+            properties:
+              id: { type: string }
+              type: { type: string }
+              tier: { type: [string, 'null'] }
+              level: { type: number }
+              heldItem: { type: [string, 'null'] }
+              value: { type: integer }
+
+    ItemUpgrades:
+      type: object
+      required: [player, profile, updatedAt, id, copies]
+      properties:
+        player: { $ref: '#/components/schemas/PlayerRef' }
+        profile: { type: [string, 'null'] }
+        updatedAt: { type: number }
+        id: { type: string }
+        copies:
+          type: array
+          items:
+            type: object
+            required: [uuid, where, name, value, plan]
+            additionalProperties: true
+            properties:
+              uuid: { type: string }
+              where: { type: string, description: Где лежит экземпляр }
+              name: { type: string }
+              rarity: { type: [string, 'null'] }
+              value: { type: number, description: Оценка с улучшениями }
+              recomb: { type: boolean }
+              market: { type: [object, 'null'], additionalProperties: true, description: Похожие лоты аукциона (те же звёзды и Recombobulator) }
+              family: { type: [object, 'null'], additionalProperties: true, description: Для аксессуара — линейка и дубли в сумке }
+              plan: { type: object, additionalProperties: true, description: Чек-лист улучшений с ценами }
+
+    Compare:
+      type: object
+      required: [players, at]
+      properties:
+        at: { type: number }
+        players:
+          type: array
+          items:
+            anyOf:
+              - $ref: '#/components/schemas/Summary'
+              - type: object
+                required: [query, error, code]
+                properties:
+                  query: { type: object, properties: { player: { type: string }, profile: { type: string } } }
+                  error: { type: string }
+                  code: { type: string }

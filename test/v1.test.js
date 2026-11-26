@@ -11,6 +11,7 @@ import Ajv2020 from 'ajv/dist/2020.js';
 import { createV1 } from '../src/v1/index.js';
 import { createKeyStore } from '../src/v1/keys.js';
 import { SPEC_FILE, mountDocs } from '../src/v1/docs.js';
+import { missingAccessories, accessoriesView, networthView } from '../src/v1/players.js';
 
 const spec = YAML.parse(fs.readFileSync(SPEC_FILE, 'utf8'));
 const ajv = new Ajv2020({ strict: false, allErrors: true, validateFormats: false });
@@ -26,8 +27,31 @@ const MEMBER = { profileName: 'Apple', profileId: 'p1', uuid: 'u1', skills: {}, 
 const VIEW = {
   player: { name: 'Steve', uuid: 'u1' }, member: MEMBER, updatedAt: 5, missingProfile: null,
   profiles: [{ id: 'p1', name: 'Apple', selected: true, mode: 'normal', members: 2 }],
-  analysis: { roadmap: [{ id: 'acc-1', cat: 'Аксессуары', priority: 80, effort: 'минуты', title: 'Купи Talisman', why: 'MP', how: ['Bazaar'], items: ['X'], cost: 10 }, { id: 'zero', cat: 'x', priority: 0, title: 't', why: '', how: [] }] },
+  analysis: {
+    roadmap: [{ id: 'acc-1', cat: 'Аксессуары', priority: 80, effort: 'минуты', title: 'Купи Talisman', why: 'MP', how: ['Bazaar'], items: ['X'], cost: 10 },
+      { id: 'dng', cat: 'Dungeons', priority: 60, title: 'Пройди F5', why: 'XP', how: [] }, { id: 'zero', cat: 'x', priority: 0, title: 't', why: '', how: [] }],
+    acc: {
+      calculatedMp: 120, highestMp: 130, count: 20, notRecombCount: 3, recombGain: 9, recombPrice: 7e6, enrichPrice: 4e6,
+      list: [{ id: 'SPEED_TALISMAN', name: 'Speed Talisman', rarity: 'COMMON', mp: 3, active: true, recomb: false, next: { id: 'SPEED_RING' }, canRecomb: true, value: 500 }],
+      missing: [
+        // линейка Speed: своя Talisman, апгрейды Ring и Artifact — в ответе один, с большим MP
+        { id: 'SPEED_RING', name: 'Speed Ring', rarity: 'UNCOMMON', gain: 2, price: 1000, perMp: 500, upgradeFrom: 'Speed Talisman', family: ['SPEED_TALISMAN', 'SPEED_RING', 'SPEED_ARTIFACT'], tier: [2, 3], how: 'craft' },
+        { id: 'SPEED_ARTIFACT', name: 'Speed Artifact', rarity: 'RARE', gain: 5, price: 50000, perMp: 10000, upgradeFrom: 'Speed Talisman', family: ['SPEED_TALISMAN', 'SPEED_RING', 'SPEED_ARTIFACT'], tier: [3, 3], how: 'craft' },
+        { id: 'FEATHER_TALISMAN', name: 'Feather Talisman', rarity: 'COMMON', gain: 3, price: 300, perMp: 100, family: ['FEATHER_TALISMAN', 'FEATHER_RING'], tier: [1, 2], how: 'npc', req: 'Feather VI' },
+        { id: 'FEATHER_RING', name: 'Feather Ring', rarity: 'UNCOMMON', gain: 5, price: 9000, perMp: 1800, family: ['FEATHER_TALISMAN', 'FEATHER_RING'], tier: [2, 2], how: 'craft' },
+        { id: 'BAT_TALISMAN', name: 'Bat Talisman', rarity: 'RARE', gain: 8, price: 0, perMp: null, family: ['BAT_TALISMAN'], how: 'drop' },
+      ],
+      steps: [{ kind: 'buy', id: 'FEATHER_TALISMAN', name: 'Feather Talisman', rarity: 'COMMON', cost: 300, gain: 3 }, { kind: 'tier', id: 'SPEED_TALISMAN', target: 'SPEED_RING', name: 'Speed Ring', cost: 1000, gain: 2 }, { kind: 'enrich', id: 'X', name: 'X', cost: 4e6, gain: 0 }],
+    },
+    gear: {
+      networth: { total: 1e9 + 0.4, items: 8e8, pets: 1e8, sacks: 5e7, essence: 2e7, museum: 2e7, coins: 1e7 },
+      topItems: [{ id: 'HYPERION', name: 'Hyperion', rarity: 'LEGENDARY', value: 8e8, where: 'Inventory' }],
+      topPets: [{ id: 'ENDER_DRAGON;4', type: 'ENDER_DRAGON', tier: 'LEGENDARY', level: 100, heldItem: null, value: 1e8 }],
+    },
+  },
 };
+const WHERE = { FEATHER_TALISMAN: [{ kind: 'npc', textRu: 'Купить у NPC Farmer за 250 монет', cost: [{ id: 'SKYBLOCK_COIN', count: 250 }] }, { kind: 'drop', subkind: 'unknown', textRu: '?' }],
+  BAT_TALISMAN: [{ kind: 'drop', textRu: 'Дроп с Bat в Spooky Festival', cost: [] }, { kind: 'trade', textRu: 'Обмен на 64 Bits', cost: [{ id: 'SKYBLOCK_BITS', count: 64 }] }] };
 
 function makeDeps(over = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-v1-'));
@@ -65,6 +89,10 @@ function makeDeps(over = {}) {
       skills: { farming: { name: 'Farming', level: 50, maxLevel: 60, progress: 0.5, xp: 1 } }, slayers: {}, dungeons: { level: 30 }, next: [{ id: 'acc-1', title: 't', cat: 'c' }] }),
     plan: v => ({ player: v.player, profile: 'Apple', updatedAt: 5, steps: v.analysis.roadmap.filter(s => s.priority > 0).map(s => ({ effort: null, items: [], cost: null, payoff: null, needsSaving: false, link: null, ...s })) }),
     money: v => ({ player: v.player, profile: 'Apple', updatedAt: 5, plan: null, methods: [{ id: 'm', title: 'Farming' }] }),
+    accessories: (v, q) => accessoriesView(v, q),
+    missing: (v, q) => missingAccessories(v, q, { whereToGet: id => WHERE[id] || [], priceOf: () => 0 }),
+    networth: (v, q) => networthView(v, q),
+    upgrades: (v, id) => (id === 'HYPERION' ? [{ uuid: 'u-1', where: 'Inventory', name: 'Heroic Hyperion ✪✪✪✪✪', rarity: 'MYTHIC', value: 9e8, recomb: true, market: null, family: null, plan: { kind: 'weapon', steps: [] } }] : []),
     ...over,
   };
 }
@@ -112,7 +140,7 @@ test('каждая ручка /v1 есть в openapi.yaml и наоборот',
     assert.ok(op.operationId && op.summary, `${p}: нужны operationId и summary`);
     assert.ok(op.responses['200'] && op.responses['429'], `${p}: нужны ответы 200 и 429`);
     // Данные игроков — только по ключу: в описании это security, в коде — 401 без ключа (проверка ниже)
-    assert.equal(!!op.security, p.startsWith('/v1/players/'), `${p}: ключ нужен ровно для ручек игроков`);
+    assert.equal(!!op.security, p.startsWith('/v1/players/') || p === '/v1/compare', `${p}: ключ нужен ровно для ручек игроков`);
   }
   const ids = inSpec.map(p => spec.paths[p].get.operationId);
   assert.equal(new Set(ids).size, ids.length, 'operationId повторяется');
@@ -196,7 +224,10 @@ test('данные игроков — только по ключу; неверн
   await get(base, '/v1/players/Steve/profiles/selected/summary', '/v1/players/{name}/profiles/{profile}/summary', { headers: h });
   assert.deepEqual(d.calls.at(-1), ['view', { player: 'Steve', profile: '' }], 'selected — профиль, где игрок играет');
   const plan = await get(base, '/v1/players/Steve/profiles/Apple/plan', '/v1/players/{name}/profiles/{profile}/plan', { headers: h });
-  assert.deepEqual(plan.body.steps.map(s => s.id), ['acc-1'], 'шаги с нулевой важностью не отдаются');
+  assert.deepEqual(plan.body.steps.map(s => s.id), ['acc-1', 'dng'], 'шаги с нулевой важностью не отдаются');
+  const one = await get(base, '/v1/players/Steve/profiles/Apple/plan?cat=dungeons&limit=5', '/v1/players/{name}/profiles/{profile}/plan', { headers: h });
+  assert.deepEqual(one.body.steps.map(s => s.id), ['dng'], 'фильтр по разделу');
+  assert.equal((await get(base, '/v1/players/Steve/profiles/Apple/plan?limit=1', '/v1/players/{name}/profiles/{profile}/plan', { headers: h })).body.steps.length, 1);
   await get(base, '/v1/players/Steve/profiles/Apple/money', '/v1/players/{name}/profiles/{profile}/money', { headers: h });
 
   // ошибки игрока
@@ -231,6 +262,63 @@ test('лимит ключа в минуту и лимит без ключа с �
   assert.equal((await fetch(`${base}/v1/version`, { headers: h })).status, 200);
   assert.equal((await fetch(`${base}/v1/version`, { headers: h })).status, 200);
   assert.equal((await fetch(`${base}/v1/version`, { headers: h })).status, 429);
+}));
+
+// ---------- Готовые разборы для бота и мода ----------
+test('недостающие аксессуары: по одному на линейку, цена, +MP и где взять', () => withV1({}, async (base, d) => {
+  const T = '/v1/players/{name}/profiles/{profile}/accessories/missing';
+  await get(base, '/v1/players/Steve/profiles/selected/accessories/missing', T, { status: 401 });
+  const h = { 'X-API-Key': d.keys.create({ name: 'Бот Telegram' }).key };
+  const { body } = await get(base, '/v1/players/Steve/profiles/selected/accessories/missing', T, { headers: h });
+  assert.deepEqual(body.items.map(r => r.id), ['FEATHER_RING', 'SPEED_ARTIFACT', 'BAT_TALISMAN'], 'старшая версия линейки, дешевле за 1 MP первыми, без цены — в конце');
+  assert.equal(body.all, 3);
+  assert.deepEqual(body.total, { count: 3, mp: 18, price: 59000, unpriced: 1 });
+  assert.equal(body.items[1].upgradeFrom, 'Speed Talisman');
+  const bat = body.items.find(r => r.id === 'BAT_TALISMAN');
+  assert.deepEqual(bat.where, [{ text: 'Дроп с Bat в Spooky Festival', coins: null }, { text: 'Обмен на 64 Bits', coins: null }], 'Bits — не монеты');
+  assert.equal(bat.howText, 'дроп');
+
+  const cheap = await get(base, `${T.replace('{name}', 'Steve').replace('{profile}', 'Apple')}?sort=price&maxPrice=20000&upgrades=0`, T, { headers: h });
+  assert.deepEqual(cheap.body.items.map(r => r.id), ['FEATHER_RING'], 'без апгрейдов своих и не дороже maxPrice');
+  const byMp = await get(base, '/v1/players/Steve/profiles/Apple/accessories/missing?sort=mp&limit=1', T, { headers: h });
+  assert.deepEqual(byMp.body.items.map(r => r.id), ['BAT_TALISMAN']);
+  assert.equal((await get(base, '/v1/players/Steve/profiles/Apple/accessories/missing?sort=nope', T, { headers: h, status: 400 })).body.code, 'BAD_QUERY');
+  assert.equal((await get(base, '/v1/players/Steve/profiles/Apple/accessories/missing?maxPrice=abc', T, { headers: h, status: 400 })).body.code, 'BAD_QUERY');
+}));
+
+test('аксессуары, networth и улучшения предмета по схемам описания', () => withV1({}, async (base, d) => {
+  const h = { 'X-API-Key': d.keys.create({ name: 'Мод' }).key };
+  const acc = await get(base, '/v1/players/Steve/profiles/Apple/accessories', '/v1/players/{name}/profiles/{profile}/accessories', { headers: h });
+  assert.equal(acc.body.magicalPower, 120);
+  assert.deepEqual(acc.body.steps.map(s => [s.kind, s.perMp]), [['buy', 100], ['tier', 500], ['enrich', null]]);
+  assert.equal(acc.body.owned[0].next, 'SPEED_RING');
+
+  const nw = await get(base, '/v1/players/Steve/profiles/Apple/networth?limit=1', '/v1/players/{name}/profiles/{profile}/networth', { headers: h });
+  assert.equal(nw.body.networth.total, 1e9, 'монеты — целые');
+  assert.equal(nw.body.topItems[0].id, 'HYPERION');
+
+  const T = '/v1/players/{name}/profiles/{profile}/items/{id}/upgrades';
+  const up = await get(base, '/v1/players/Steve/profiles/Apple/items/HYPERION/upgrades', T, { headers: h });
+  assert.equal(up.body.copies.length, 1);
+  assert.deepEqual((await get(base, '/v1/players/Steve/profiles/Apple/items/DIRT/upgrades', T, { headers: h })).body.copies, []);
+  await get(base, '/v1/players/Steve/profiles/Apple/items/bad%20id/upgrades', T, { headers: h, status: 400 });
+
+  // профиль без разбора (Hypixel не отдал инвентарь) — 404 NO_DATA, а не пустой ответ
+  const empty = { ...VIEW, analysis: { roadmap: [] } };
+  d.players.view = async () => empty;
+  assert.equal((await get(base, '/v1/players/Steve/profiles/Apple/accessories/missing', '/v1/players/{name}/profiles/{profile}/accessories/missing', { headers: h, status: 404 })).body.code, 'NO_DATA');
+  assert.equal((await get(base, '/v1/players/Steve/profiles/Apple/networth', '/v1/players/{name}/profiles/{profile}/networth', { headers: h, status: 404 })).body.code, 'NO_DATA');
+}));
+
+test('сравнение: до 4 игроков, ошибка одного не ломает ответ', () => withV1({}, async (base, d) => {
+  await get(base, '/v1/compare?p=Steve', '/v1/compare', { status: 401 });
+  const h = { 'X-API-Key': d.keys.create({ name: 'Бот' }).key };
+  const { body } = await get(base, '/v1/compare?p=Steve/Apple&p=Secret&p=Nobody&p=Steve/Banana', '/v1/compare', { headers: h });
+  assert.equal(body.players[0].profile, 'Apple');
+  assert.deepEqual(body.players.slice(1).map(p => p.code), ['HIDDEN', 'NOT_FOUND', 'NO_PROFILE']);
+  assert.equal((await get(base, '/v1/compare', '/v1/compare', { headers: h, status: 400 })).body.code, 'BAD_QUERY');
+  assert.equal((await get(base, '/v1/compare?p=a&p=b&p=c&p=d&p=e', '/v1/compare', { headers: h, status: 400 })).body.code, 'BAD_QUERY');
+  assert.equal((await get(base, '/v1/compare?p=bad-nick!', '/v1/compare', { headers: h })).body.players[0].code, 'BAD_NAME');
 }));
 
 // ---------- Swagger ----------

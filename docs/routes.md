@@ -136,13 +136,18 @@
 
 - `GET /v1/auctions`
 - `GET /v1/bazaar`
+- `GET /v1/compare`
 - `GET /v1/flips/:kind`
 - `GET /v1/items/:id`
 - `GET /v1/items/:id/obtain`
 - `GET /v1/market/candles/:id`
 - `GET /v1/news`
 - `GET /v1/players/:name/profiles`
+- `GET /v1/players/:name/profiles/:profile/accessories`
+- `GET /v1/players/:name/profiles/:profile/accessories/missing`
+- `GET /v1/players/:name/profiles/:profile/items/:id/upgrades`
 - `GET /v1/players/:name/profiles/:profile/money`
+- `GET /v1/players/:name/profiles/:profile/networth`
 - `GET /v1/players/:name/profiles/:profile/plan`
 - `GET /v1/players/:name/profiles/:profile/summary`
 - `GET /v1/refs/lexicon`

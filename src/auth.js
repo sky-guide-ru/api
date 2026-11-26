@@ -583,7 +583,7 @@ function accountPage({ me, must = false, flash = null, users = null, keys = null
       </div>`).join('')}</div>` : ''}
     <form method="post" action="/account/api-keys" class="u" style="grid-template-columns:1fr;margin-top:12px">
       <div class="row">
-        <div><label>Для кого ключ</label><input name="name" required maxlength="40" placeholder="Бот Discord"></div>
+        <div><label>Для кого ключ</label><input name="name" required maxlength="40" placeholder="Бот Telegram, бот Discord или мод"></div>
         <div><label>Запросов в минуту</label><input name="perMin" inputmode="numeric" placeholder="${DEFAULT_KEY_PER_MIN}"></div>
         <button type="submit">Выдать ключ</button>
       </div>
