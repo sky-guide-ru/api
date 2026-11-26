@@ -6,7 +6,7 @@ import { tx } from '@sky-guide/core/i18n/msg.js';
 // разделов есть обычные адреса (/guides/fishing, /item/HYPERION): сервер отдаёт по ним страницу с готовым текстом,
 // а браузер открывает нужный раздел (client/src/App.jsx → pathRoute).
 
-export const SITE_NAME = 'SkyBlock трекер';
+export const SITE_NAME = 'Sky Guide';
 export const SITE_TAGLINE = 'Hypixel SkyBlock на русском';
 
 /** Разделы, которые открыты без ника. page — id раздела в приложении (#/<page>). */
@@ -51,9 +51,9 @@ export const SECTIONS = [
 
 /** Что увидит игрок на главной — для поисковиков и нейросетей. */
 export const HOME = {
-  path: '/', page: 'overview', title: tx`${SITE_NAME} на русском: профиль, прогрессия, заработок`,
+  path: '/', page: 'overview', title: tx`${SITE_NAME} — гид по Hypixel SkyBlock на русском`,
   h1: 'Hypixel SkyBlock на русском',
-  description: 'Трекер Hypixel SkyBlock на русском: введи ник и получи план прогрессии, снаряжение, аксессуары, питомцев, гайды и способы заработка по живым ценам Bazaar и аукциона.',
+  description: 'Гид по Hypixel SkyBlock на русском: введи ник и получи план прогрессии, снаряжение, аксессуары, питомцев, гайды и способы заработка по живым ценам Bazaar и аукциона.',
   intro: [
     'Введи ник Minecraft, и сайт разберёт твой профиль Hypixel SkyBlock: что делать дальше, какое снаряжение улучшить, каких аксессуаров и питомцев не хватает, как заработать монеты с тем, что уже есть.',
     'Без ника открыты гайды, вики предметов на русском, цены Bazaar и аукциона, события и рейтинг игроков.',
