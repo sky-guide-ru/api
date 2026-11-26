@@ -8,10 +8,11 @@
 import express from 'express';
 import { createRateLimiter } from '../lib/guard.js';
 
-export const V1_VERSION = '1.0.0';
+export const V1_VERSION = '1.1.0';
 const FLIPS = ['bazaar', 'craft', 'forge', 'npc'];
 const NICK = /^[A-Za-z0-9_]{1,16}$/;
 const ITEM_ID = /^[A-Za-z0-9_:;\-.]{1,80}$/;
+const MISSING_SORTS = ['perMp', 'price', 'mp'];
 
 /** Ошибка в одном виде для всех ручек: { error, code } */
 function fail(res, status, code, error, extra = {}) {
@@ -31,7 +32,8 @@ const PLAYER_ERRORS = {
  *   openPerMin — лимит без ключа с одного адреса;
  *   items: { card(id, { lvl }), obtain(id), search(q, limit) }; market: { bazaar(q), auctions(q), candles(id, o), flips(kind, q) };
  *   lexicon(), news(), status(), version();
- *   players: { view({ player, profile }), hidden(name) }; summary(v), plan(v), money(v)
+ *   players: { view({ player, profile }), hidden(name) }; summary(v), plan(v), money(v);
+ *   accessories(v, q), missing(v, q), networth(v, q), upgrades(v, id) — null, если у профиля нет этих данных
  */
 export function createV1(d) {
   const r = express.Router({ caseSensitive: true });
@@ -157,12 +159,67 @@ export function createV1(d) {
     cache(res, 0);
     res.json({ player: { name: v.player?.name || req.params.name, uuid: v.player?.uuid || null }, profiles: (v.profiles || []).map(p => ({ id: p.id, name: p.name, selected: !!p.selected, mode: p.mode || 'normal', members: p.members || 1 })) });
   }));
-  for (const [part, fn] of [['summary', 'summary'], ['plan', 'plan'], ['money', 'money']]) {
+  for (const part of ['summary', 'money']) {
     r.get(`/players/:name/profiles/:profile/${part}`, needKey, wrap(async (req, res) => {
       const v = await view(req, res); if (!v) return;
-      cache(res, 0); res.json(d[fn](v));
+      cache(res, 0); res.json(d[part](v));
     }));
   }
+  r.get('/players/:name/profiles/:profile/plan', needKey, wrap(async (req, res) => {
+    const v = await view(req, res); if (!v) return;
+    const out = d.plan(v);
+    const cat = req.query.cat ? String(req.query.cat).toLowerCase() : '';
+    if (cat) out.steps = out.steps.filter(s => String(s.cat).toLowerCase() === cat);
+    if (req.query.limit != null) out.steps = out.steps.slice(0, int(req.query.limit, 100, 1, 100));
+    cache(res, 0); res.json(out);
+  }));
+
+  // Готовые разборы: у профиля их может не быть (Hypixel не отдал инвентарь) — тогда 404 NO_DATA
+  const noData = res => fail(res, 404, 'NO_DATA', 'Для этого профиля нет таких данных: игрок закрыл инвентарь в настройках API SkyBlock');
+  const part = (path, fn) => r.get(`/players/:name/profiles/:profile/${path}`, needKey, wrap(async (req, res) => {
+    const v = await view(req, res); if (!v) return;
+    const out = await fn(v, req, res);
+    if (res.headersSent) return;
+    if (out == null) return noData(res);
+    cache(res, 0); res.json(out);
+  }));
+  part('accessories', (v, req) => d.accessories(v, { limit: int(req.query.limit, 20, 1, 200) }));
+  part('accessories/missing', (v, req, res) => {
+    const sort = req.query.sort ? String(req.query.sort) : 'perMp';
+    if (!MISSING_SORTS.includes(sort)) return fail(res, 400, 'BAD_QUERY', `sort бывает: ${MISSING_SORTS.join(', ')}`);
+    const maxPrice = req.query.maxPrice != null && req.query.maxPrice !== '' ? Number(req.query.maxPrice) : Infinity;
+    if (Number.isNaN(maxPrice) || maxPrice < 0) return fail(res, 400, 'BAD_QUERY', 'maxPrice — число монет');
+    return d.missing(v, { sort, maxPrice, limit: int(req.query.limit, 50, 1, 500), upgrades: req.query.upgrades !== '0' && req.query.upgrades !== 'false' });
+  });
+  part('networth', (v, req) => d.networth(v, { limit: int(req.query.limit, 10, 1, 50) }));
+  part('items/:id/upgrades', (v, req, res) => {
+    const id = itemId(req, res); if (!id) return null;
+    return { player: { name: v.player?.name || null, uuid: v.player?.uuid || null }, profile: v.member?.profileName || null, updatedAt: v.updatedAt || 0, id, copies: d.upgrades(v, id) || [] };
+  });
+
+  // Сравнение: ?p=Ник/Профиль (2–4 раза). Ошибка одного игрока не ломает ответ — у него будет error и code
+  r.get('/compare', needKey, wrap(async (req, res) => {
+    const raw = [].concat(req.query.p || []).map(String).filter(Boolean);
+    if (!raw.length || raw.length > 4) return fail(res, 400, 'BAD_QUERY', 'Параметр p=Ник или p=Ник/Профиль — от 1 до 4 раз');
+    const players = await Promise.all(raw.map(async s => {
+      const [player, profile = ''] = s.split('/').map(x => x.trim());
+      const query = { player, profile: profile === 'selected' ? '' : profile.slice(0, 40) };
+      const err = (code, error) => ({ query, error, code });
+      if (!NICK.test(player)) return err('BAD_NAME', 'Ник Minecraft: латиница, цифры и _, до 16 символов');
+      if (d.players.hidden(player)) return err('HIDDEN', 'Игрок попросил не показывать его профиль');
+      try {
+        const v = await d.players.view(query);
+        if (!v.member) return v.error ? err('HYPIXEL_UNAVAILABLE', 'Hypixel не ответил, повтори через минуту') : err('LOADING', 'Профиль ещё загружается, повтори через минуту');
+        if (query.profile && v.missingProfile) return err('NO_PROFILE', `У игрока нет профиля «${query.profile}»`);
+        return d.summary(v);
+      } catch (e) {
+        const [, code] = PLAYER_ERRORS[e?.code] || [500, 'INTERNAL'];
+        if (code === 'INTERNAL') console.warn('[v1] compare', e?.message || e);
+        return err(code, code === 'INTERNAL' ? 'Ошибка сервера' : String(e?.message || e));
+      }
+    }));
+    cache(res, 0); res.json({ players, at: Date.now() });
+  }));
 
   r.use((req, res) => fail(res, 404, 'NOT_FOUND', 'Нет такого адреса в /v1 — список на /api/docs'));
   return r;

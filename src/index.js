@@ -17,7 +17,7 @@ import { refreshMayor } from '@sky-guide/core/analysis/money.js';
 import { mountPriceRoutes } from './routes/prices.js';
 import { createCharts } from './routes/charts.js';
 import { mountSkinRoutes } from './routes/skin.js';
-import { mountItemUpgradeRoutes } from './routes/item-upgrades.js';
+import { mountItemUpgradeRoutes, itemUpgradeCopies } from './routes/item-upgrades.js';
 import { variableView } from '@sky-guide/core/lib/variable-stats.js';
 import { setItemsResource, itemProps, obtainmentOf } from '@sky-guide/core/lib/item-props.js';
 import { darkAuctionOf } from '@sky-guide/core/analysis/dark-auction.js';
@@ -87,6 +87,7 @@ import { langMiddleware, isEn, inLang, translateDeep, getTranslator, preferredLa
 import { tx } from '@sky-guide/core/i18n/msg.js';
 import { createV1 } from './v1/index.js';
 import { createKeyStore } from './v1/keys.js';
+import { missingAccessories, accessoriesView, networthView } from './v1/players.js';
 import { mountDocs } from './v1/docs.js';
 import { obtainGuide } from './routes/obtain.js';
 import { newsView } from '@sky-guide/core/news/index.js';
@@ -174,6 +175,8 @@ const corePkg = (() => { try { return createRequire(import.meta.url)('@sky-guide
 const playerView = want => (players.isOwner(want) ? Promise.resolve({ owner: true, want, ...state }) : players.get(want));
 const v1Step = s => ({ id: s.id, cat: s.cat, priority: s.priority, effort: s.effort || null, title: s.title, why: s.why || '', how: s.how || [],
   items: s.items || [], cost: s.cost ?? null, payoff: s.payoff || null, needsSaving: !!s.needsSaving, link: s.link || null });
+// Чек-лист улучшений своих экземпляров: и для сайта (/api/item/:id/upgrades), и для /v1
+const upgradeDeps = { neu, priceOf, buyPriceOf, get binVar() { return prices.binVar; }, petPriceOf, translateLoreLine, translateLore };
 app.use('/v1', createV1({
   keys: apiKeys, clientIp: req => auth.clientIp(req), open: () => auth.publicView, openPerMin: Number(process.env.V1_PER_MIN) || 120,
   items: {
@@ -207,6 +210,10 @@ app.use('/v1', createV1({
     return { player: { name: v.player?.name, uuid: v.player?.uuid || null }, profile: v.member?.profileName || null, updatedAt: v.updatedAt || 0,
       plan: moneyMod.moneyPlan(v.member, extra, methods), methods };
   },
+  accessories: (v, q) => accessoriesView(v, q),
+  missing: (v, q) => missingAccessories(v, q, { whereToGet: id => getItemRu(id)?.whereToGet || [], priceOf }),
+  networth: (v, q) => networthView(v, q),
+  upgrades: (v, id) => itemUpgradeCopies(v.member, id, upgradeDeps),
 }));
 app.use(auth.router); // вход: ник + пароль сайта (data/users.json) — до всех страниц и /api; req.sbUser — кто вошёл
 // Лимит запросов с одного адреса (владельцу не мешает): картинки — отдельно, их на странице сотни
@@ -670,7 +677,7 @@ mountMinionRoutes(app, {
   },
 });
 mountObtainRoutes(app, { getMember: async req => (await req.sbView().catch(() => null))?.member || null, neu, prices, getCollections: () => moneyMod.craftCollections });
-mountItemUpgradeRoutes(app, { getMember: async req => (await req.sbView().catch(() => null))?.member || null, neu, priceOf, buyPriceOf, get binVar() { return prices.binVar; }, petPriceOf, translateLoreLine, translateLore });
+mountItemUpgradeRoutes(app, async req => (await req.sbView().catch(() => null))?.member || null, upgradeDeps);
 // Bank (проценты, счета), Bits (Community Shop), Maxwell (силы и Tuning): /api/bank, /api/bits, /api/maxwell
 mountWealthRoutes(app, { getMember: async req => (await req.sbView().catch(() => null))?.member || null, prices, priceOf, itemName });
 // Гайды по направлениям (данжи, слееры, Kuudra, Рифт, рыбалка…): /api/guides, /api/guides/:id
