@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Sky Guide API
-  version: 1.3.0
+  version: 1.4.0
   summary: Предметы, рынок и расчёты по Hypixel SkyBlock на русском и английском
   description: |
     Открытый API сайта [sky-guide.ru](https://sky-guide.ru). Все ответы — расчёты и переводы Sky Guide,
@@ -696,6 +696,30 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Networth' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/players/{name}/profiles/{profile}/auctions:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerAuctions
+      summary: Свои лоты Auction House и ставки
+      description: 'Лоты игрока на Auction House со статусом (sold — продан, монеты ждут; expired — истёк, предмет ждёт; active — висит), для висящих BIN — есть ли дешевле на аукционе. Ставки на чужие аукционы — лидер или перебили. Hypixel спрашивается не чаще раза в 3 минуты на игрока. Ордеров Bazaar в API Hypixel нет (bazaar: false).'
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Лоты и ставки
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MyAuctions' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/NoKey' }
         '403': { $ref: '#/components/responses/BadKey' }
@@ -1661,6 +1685,64 @@ components:
                     text: { type: string }
                     coins: { type: [integer, 'null'], description: Цена способа в монетах, если считается }
 
+    MyAuctions:
+      type: object
+      required: [player, profile, at, listings, bids, summary, bazaar]
+      properties:
+        player: { $ref: '#/components/schemas/PlayerRef' }
+        profile: { type: [string, 'null'] }
+        at: { type: number, description: 'Когда лоты получены от Hypixel (мс)' }
+        scanAt: { type: [number, 'null'], description: 'Когда был последний скан аукциона (ставки и цены)' }
+        error: { type: [string, 'null'], description: 'Hypixel не ответил — показаны последние полученные лоты' }
+        errorCode: { type: [string, 'null'] }
+        bazaar: { type: boolean, const: false, description: 'Ордеров Bazaar в API Hypixel нет' }
+        listings:
+          type: array
+          items:
+            type: object
+            required: [id, name, status, bin, price, end]
+            properties:
+              id: { type: string }
+              name: { type: string }
+              tier: { type: [string, 'null'] }
+              key: { type: [string, 'null'], description: 'Ключ предмета для цен' }
+              count: { type: integer }
+              bin: { type: boolean }
+              status: { type: string, enum: [sold, expired, active] }
+              start: { type: number }
+              end: { type: number }
+              price: { type: number, description: 'Цена BIN или текущая ставка' }
+              bids: { type: integer }
+              coins: { type: number, description: 'Сколько монет забрать (sold)' }
+              cheapest: { type: boolean, description: 'Самый дешёвый BIN этого предмета' }
+              next: { type: number, description: 'Цена следующего по дешевизне лота' }
+              undercut: { type: number, description: 'На сколько дешевле самый дешёвый чужой лот' }
+              lowest: { type: number, description: 'Цена самого дешёвого чужого лота' }
+        bids:
+          type: array
+          items:
+            type: object
+            required: [id, name, status, mine, top, end]
+            properties:
+              id: { type: string }
+              key: { type: [string, 'null'], description: 'Ключ предмета для цен и картинки' }
+              name: { type: string }
+              tier: { type: [string, 'null'] }
+              end: { type: number }
+              mine: { type: number }
+              top: { type: number }
+              bids: { type: integer }
+              status: { type: string, enum: [leading, outbid] }
+        summary:
+          type: object
+          properties:
+            coins: { type: number }
+            sold: { type: integer }
+            expired: { type: integer }
+            active: { type: integer }
+            undercut: { type: integer }
+            outbid: { type: integer }
+            bids: { type: integer }
     Networth:
       type: object
       required: [player, profile, updatedAt, networth, topItems, topPets]

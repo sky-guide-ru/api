@@ -24,6 +24,7 @@ import { darkAuctionOf } from '@sky-guide/core/analysis/dark-auction.js';
 import * as sbTime from '@sky-guide/core/calendar/time.js';
 import { mountObtainRoutes } from './routes/obtain.js';
 import { mountWealthRoutes, wealthViews } from './routes/wealth.js';
+import { createPlayerAuctions } from '@sky-guide/core/player-auctions.js';
 import * as moneyMod from '@sky-guide/core/analysis/money.js';
 import { getItemsResource, getCollectionsResource } from '@sky-guide/core/hypixel.js';
 import { setCollectionsResource } from '@sky-guide/core/analysis/roadmap.js';
@@ -229,6 +230,7 @@ app.use('/v1', createV1({
   accessories: (v, q) => accessoriesView(v, q),
   missing: (v, q) => missingAccessories(v, q, { whereToGet: id => getItemRu(id)?.whereToGet || [], priceOf }),
   networth: (v, q) => networthView(v, q),
+  auctions: async v => { const a = await auctionsOf(v); return a && { player: { name: v.player?.name || null, uuid: v.player?.uuid || null }, profile: v.member?.profileName || null, ...a }; },
   upgrades: (v, id) => itemUpgradeCopies(v.member, id, upgradeDeps),
   // Открытые разделы
   calendar: year => calendar(year),
@@ -719,6 +721,18 @@ mountObtainRoutes(app, { getMember: async req => (await req.sbView().catch(() =>
 mountItemUpgradeRoutes(app, async req => (await req.sbView().catch(() => null))?.member || null, upgradeDeps);
 // Bank (проценты, счета), Bits (Community Shop), Maxwell (силы и Tuning): /api/bank, /api/bits, /api/maxwell
 mountWealthRoutes(app, { getMember: async req => (await req.sbView().catch(() => null))?.member || null, prices, priceOf, itemName });
+// «Мои лоты»: свои лоты Auction House и ставки выбранного игрока. Запрос к Hypixel — только когда вкладку открыли,
+// не чаще раза в 3 минуты на игрока (core/src/player-auctions.js); ордера Bazaar Hypixel API не отдаёт
+const playerAuctions = createPlayerAuctions();
+const auctionsOf = v => (v?.player?.uuid ? playerAuctions.view({ uuid: v.player.uuid, profileId: v.member?.profileId || null }) : null);
+app.get('/api/my-auctions', async (req, res) => {
+  res.set('Cache-Control', 'private, no-cache');
+  if (req.sbGuest && !req.sbWant) return res.json({ status: 'empty' });
+  try {
+    const out = await auctionsOf(await req.sbView());
+    res.json(out ? { status: 'ok', ...out } : { status: 'empty' });
+  } catch (e) { res.json({ status: 'error', error: e.message, errorCode: e.code || null, limitedUntil: e.limitedUntil || null }); }
+});
 // Гайды по направлениям (данжи, слееры, Kuudra, Рифт, рыбалка…): /api/guides, /api/guides/:id
 mountGuideRoutes(app, {
   // гайды — для выбранного игрока (свой профиль или друг); гость без ника читает их без привязки к профилю
