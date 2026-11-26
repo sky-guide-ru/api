@@ -92,6 +92,14 @@ function makeDeps(over = {}) {
     accessories: (v, q) => accessoriesView(v, q),
     missing: (v, q) => missingAccessories(v, q, { whereToGet: id => WHERE[id] || [], priceOf: () => 0 }),
     networth: (v, q) => networthView(v, q),
+    auctions: async v => {
+      if (v.player.name === 'Limited') { const e = new Error('Hypixel просит подождать'); e.code = 'RATE'; throw e; }
+      return { player: v.player, profile: 'Apple', at: 5, scanAt: 4, error: null, errorCode: null, bazaar: false,
+        listings: [{ id: 'a1', name: 'Hyperion', tier: 'LEGENDARY', key: 'HYPERION', count: 1, bin: true, status: 'sold', start: 1, end: 2, price: 9e8, bids: 1, coins: 9e8 },
+          { id: 'a2', name: 'Juju Shortbow', tier: 'EPIC', key: 'JUJU_SHORTBOW', count: 1, bin: true, status: 'active', start: 1, end: 9, price: 2e6, bids: 0, undercut: 1e5, lowest: 1.9e6 }],
+        bids: [{ id: 'b1', name: 'Terminator', tier: 'LEGENDARY', end: 9, mine: 1, top: 2, bids: 2, status: 'outbid' }],
+        summary: { coins: 9e8, sold: 1, expired: 0, active: 1, undercut: 1, outbid: 1, bids: 1 } };
+    },
     calendar: year => ({ year: year ? Number(year) : 400, mayor: { name: 'Diana' }, money: [] }),
     leaderboard: q => { calls.push(['leaderboard', q]); return { board: q.board, rows: [{ rank: 1, name: 'Steve', value: 1e9 }], mode: q.mode, tracked: 1, boards: [{ id: 'networth', label: 'Networth' }] }; },
     guides: { list: () => ({ groups: [{ id: 'combat', title: 'Combat' }], guest: true, guides: [{ id: 'dungeons', title: 'Dungeons' }] }), get: id => (id === 'dungeons' ? { id, title: 'Dungeons', sections: [] } : null) },
@@ -320,6 +328,17 @@ test('аксессуары, networth и улучшения предмета по
   d.players.view = async () => empty;
   assert.equal((await get(base, '/v1/players/Steve/profiles/Apple/accessories/missing', '/v1/players/{name}/profiles/{profile}/accessories/missing', { headers: h, status: 404 })).body.code, 'NO_DATA');
   assert.equal((await get(base, '/v1/players/Steve/profiles/Apple/networth', '/v1/players/{name}/profiles/{profile}/networth', { headers: h, status: 404 })).body.code, 'NO_DATA');
+}));
+
+test('свои лоты AH: только по ключу с данными игроков, по схеме описания', () => withV1({}, async (base, d) => {
+  const T = '/v1/players/{name}/profiles/{profile}/auctions';
+  await get(base, '/v1/players/Steve/profiles/Apple/auctions', T, { status: 401 });
+  const h = { 'X-API-Key': d.keys.create({ name: 'Мод', players: true }).key };
+  const { body } = await get(base, '/v1/players/Steve/profiles/Apple/auctions', T, { headers: h });
+  assert.deepEqual(body.listings.map(l => l.status), ['sold', 'active']);
+  assert.equal(body.bazaar, false);
+  const other = { 'X-API-Key': d.keys.create({ name: 'Чужой бот' }).key };
+  assert.equal((await get(base, '/v1/players/Steve/profiles/Apple/auctions', T, { headers: other, status: 403 })).body.code, 'NO_SCOPE');
 }));
 
 test('сравнение: до 4 игроков, ошибка одного не ломает ответ', () => withV1({}, async (base, d) => {

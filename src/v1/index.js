@@ -10,7 +10,7 @@
 import express from 'express';
 import { createRateLimiter } from '../lib/guard.js';
 
-export const V1_VERSION = '1.3.0';
+export const V1_VERSION = '1.4.0';
 const FLIPS = ['bazaar', 'craft', 'forge', 'npc', 'snipes'];
 // Разделы игрока — те же расчёты, что страницы сайта
 export const SECTIONS = ['gear', 'progress', 'pets', 'map', 'collections', 'minions', 'museum', 'sacks', 'essence', 'bank', 'bits', 'maxwell', 'guides'];
@@ -40,6 +40,7 @@ const PLAYER_ERRORS = {
  *   lexicon(), news(), status(), version();
  *   players: { view({ player, profile }), hidden(name) }; summary(v), plan(v), money(v);
  *   accessories(v, q), missing(v, q), networth(v, q), upgrades(v, id) — null, если у профиля нет этих данных;
+ *   auctions(v) — свои лоты Auction House и ставки (async);
  *   calendar(year), leaderboard(q), guides: { list(), get(id) }, quotes(ids), trend(id), movers(period), crops(q), image(id) → png;
  *   section(name, v, q) для SECTIONS, guide(id, v), history(v, days)
  */
@@ -241,6 +242,8 @@ export function createV1(d) {
     return d.missing(v, { sort, maxPrice, limit: int(req.query.limit, 50, 1, 500), upgrades: req.query.upgrades !== '0' && req.query.upgrades !== 'false' });
   });
   part('networth', (v, req) => d.networth(v, { limit: int(req.query.limit, 10, 1, 50) }));
+  // Свои лоты AH и ставки: Hypixel спрашивается не чаще раза в 3 минуты на игрока, ордеров Bazaar в API Hypixel нет
+  part('auctions', v => d.auctions(v));
   part('items/:id/upgrades', (v, req, res) => {
     const id = itemId(req, res); if (!id) return null;
     return { player: { name: v.player?.name || null, uuid: v.player?.uuid || null }, profile: v.member?.profileName || null, updatedAt: v.updatedAt || 0, id, copies: d.upgrades(v, id) || [] };
