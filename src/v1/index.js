@@ -1,15 +1,16 @@
 // Публичный API /v1: описание — openapi.yaml в корне репо (сначала описание, потом код), страница Swagger — /api/docs.
 //
 // Открыто всем (без ключа): предметы и картинки, поиск, Bazaar, аукцион, свечи, цены, тренды, флипы, календарь, лидерборды,
-// гайды, словарь терминов, новости, статус. Данные игроков (разборы и разделы сайта) — только по ключу X-API-Key,
-// для своих клиентов (бот, мод): так требуют правила Hypixel.
+// гайды, словарь терминов, новости, статус. Данные игроков (разборы и разделы сайта) — только по ключу X-API-Key
+// с отметкой players: это собственные клиенты Sky Guide (свой бот, свой мод), так требуют правила Hypixel.
+// Условия использования — страница /api-terms (подпись «Данные: Sky Guide», без перепродажи).
 // Все ответы — наши расчёты и переводы, а не пересказ ответа Hypixel. Язык: ?lang=en или заголовок X-Lang: en.
 //
 // Старые адреса /api/* сайт использует как раньше: /v1 только добавляется.
 import express from 'express';
 import { createRateLimiter } from '../lib/guard.js';
 
-export const V1_VERSION = '1.2.0';
+export const V1_VERSION = '1.3.0';
 const FLIPS = ['bazaar', 'craft', 'forge', 'npc', 'snipes'];
 // Разделы игрока — те же расчёты, что страницы сайта
 export const SECTIONS = ['gear', 'progress', 'pets', 'map', 'collections', 'minions', 'museum', 'sacks', 'essence', 'bank', 'bits', 'maxwell', 'guides'];
@@ -49,7 +50,10 @@ export function createV1(d) {
 
   // CORS: ключ передаётся заголовком, cookie не нужны — читать /v1 можно с любого сайта
   r.use((req, res, next) => {
-    res.set({ 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'X-API-Key, X-Lang, Content-Type', 'Access-Control-Expose-Headers': 'X-RateLimit-Limit, X-RateLimit-Remaining, Retry-After', 'Access-Control-Max-Age': '86400' });
+    // Условия API (/api-terms): рядом с данными — видимая подпись «Данные: Sky Guide» со ссылкой на sky-guide.ru
+    res.set('X-Attribution', 'Data: Sky Guide (https://sky-guide.ru)');
+    res.set('Link', '</api-terms>; rel="terms-of-service"');
+    res.set({ 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'X-API-Key, X-Lang, Content-Type', 'Access-Control-Expose-Headers': 'X-RateLimit-Limit, X-RateLimit-Remaining, Retry-After, X-Attribution, Link', 'Access-Control-Max-Age': '86400' });
     res.vary('X-Lang');
     if (req.method === 'OPTIONS') return res.status(204).end();
     if (req.method !== 'GET' && req.method !== 'HEAD') return fail(res, 405, 'METHOD', 'В /v1 только чтение (GET)');
@@ -88,7 +92,11 @@ export function createV1(d) {
   });
 
   const open = (req, res, next) => (d.open() || req.v1Key ? next() : fail(res, 401, 'NO_KEY', 'Нужен ключ API (заголовок X-API-Key)'));
-  const needKey = (req, res, next) => (req.v1Key ? next() : fail(res, 401, 'NO_KEY', 'Данные игроков — только по ключу API (заголовок X-API-Key)'));
+  // Данные игроков — только собственным клиентам Sky Guide (ключ с отметкой players): правила Hypixel
+  // запрещают отдавать данные их API сторонним разработчикам
+  const needKey = (req, res, next) => (!req.v1Key ? fail(res, 401, 'NO_KEY', 'Данные игроков — только по ключу API (заголовок X-API-Key)')
+    : req.v1Key.players ? next()
+      : fail(res, 403, 'NO_SCOPE', 'Этот ключ не открывает данные игроков: они доступны только собственным клиентам Sky Guide. Открытые ручки работают'));
   const wrap = fn => async (req, res) => {
     try { await fn(req, res); } catch (e) {
       const [status, code] = PLAYER_ERRORS[e?.code] || [500, 'INTERNAL'];

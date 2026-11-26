@@ -185,6 +185,7 @@
 - `GET /login`
 - `GET /logout`
 - `POST /account/api-keys`
+- `POST /account/api-keys/players`
 - `POST /account/api-keys/revoke`
 - `POST /account/logout-all`
 - `POST /account/password`
@@ -203,7 +204,9 @@
 - `GET /^\/en$/`
 - `GET /^\/google([0-9a-f]{8,32})\.html$/`
 - `GET /^\/yandex_([0-9a-f]{8,32})\.html$/`
+- `GET /api-terms`
 - `GET /consent`
+- `GET /en/api-terms`
 - `GET /en/consent`
 - `GET /en/legal`
 - `GET /en/privacy`

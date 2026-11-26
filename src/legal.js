@@ -11,7 +11,7 @@
 // ВНИМАНИЕ: тексты подготовлены ИИ по открытым источникам и не являются юридической консультацией.
 import { publicConfig } from './public.js';
 import { publicPackNames } from '@sky-guide/core/packs.js';
-import { legalEn, privacyEn, consentEn, termsEn, EN_TITLES, EN_NOTE } from './legal-en.js';
+import { legalEn, privacyEn, consentEn, termsEn, apiTermsEn, EN_TITLES, EN_NOTE } from './legal-en.js';
 
 export const LEGAL_VERSION = '25 ноября 2026';
 export const LEGAL_VERSION_EN = '25 November 2026';
@@ -70,7 +70,7 @@ function page(env, active, title, body, { owner = false, lang = 'ru' } = {}) {
   const op = operatorInfo(env);
   const en = lang === 'en', pre = en ? '/en' : '';
   const links = en ? Object.entries(EN_TITLES)
-    : [['/legal', 'Правовая информация'], ['/privacy', 'Политика конфиденциальности'], ['/consent', 'Согласие на обработку данных'], ['/terms', 'Пользовательское соглашение']];
+    : [['/legal', 'Правовая информация'], ['/privacy', 'Политика конфиденциальности'], ['/consent', 'Согласие на обработку данных'], ['/terms', 'Пользовательское соглашение'], ['/api-terms', 'API и правила']];
   const other = en ? `<a href="${active}" hreflang="ru" lang="ru">Русская версия</a>` : `<a href="/en${active}" hreflang="en" lang="en">English</a>`;
   return `<!doctype html><html lang="${en ? 'en' : 'ru'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} · Sky Guide</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -260,7 +260,31 @@ ${s.ads || s.donate ? `<h2>5. Реклама и поддержка</h2><p>${s.ad
 `, opts);
 }
 
-const PAGES = { '/legal': legalPage, '/privacy': privacyPage, '/consent': consentPage, '/terms': termsPage };
+export function apiTermsPage(env = process.env, opts = {}) {
+  if (opts.lang === 'en') return enPage(env, '/api-terms', apiTermsEn, opts);
+  const op = operatorInfo(env);
+  return page(env, '/api-terms', 'API и правила', `
+<p>У Sky Guide есть открытый API <code>/v1</code>, описание — на <a href="/api/docs/">/api/docs</a>. Пользуясь им, вы соглашаетесь с этими условиями и с <a href="/terms">пользовательским соглашением</a> сайта.</p>
+<h2>1. Что открыто</h2>
+<p>Предметы, поиск, цены Bazaar и аукциона, тренды, флипы, календарь, лидерборды, гайды и новости открыты без ключа — до 120 запросов в минуту с одного адреса. Ключ от владельца сайта даёт только свой лимит запросов.</p>
+<h2>2. Данные игроков</h2>
+<p>Профили игроков и их разбор (<code>/v1/players/…</code>, <code>/v1/compare</code>) доступны только собственным клиентам Sky Guide — боту и моду самого сайта. Сторонним разработчикам ключи с доступом к данным игроков не выдаются: <a href="https://developer.hypixel.net/policies" rel="noopener">правила API Hypixel</a> запрещают передавать данные их API другим.</p>
+<h2>3. Условия</h2>
+<ul>
+<li><b>Подпись.</b> Рядом с данными из API — видимая подпись «Данные: Sky Guide» со ссылкой на <a href="https://sky-guide.ru">https://sky-guide.ru</a>: в сообщении бота, в окне мода, на странице.</li>
+<li><b>Без перепродажи.</b> Нельзя продавать данные API и доступ к нему, в том числе через ключи, прокси и зеркала.</li>
+<li><b>Платные функции</b> на основе API — только с письменного разрешения владельца сайта.</li>
+<li>Нельзя обходить лимиты, скачивать данные целиком и выдавать данные Sky Guide за свои.</li>
+<li>Ключ личный: не передавайте его другим.</li>
+</ul>
+<h2>4. Нарушения</h2>
+<p>За нарушение условий ключ отзывается, запросы с адреса могут быть ограничены. Владелец может отказать в доступе без объяснения причин.</p>
+<h2>5. Без гарантий</h2>
+<p>API предоставляется «как есть», без гарантий работы и точности. В <code>/v1</code> только добавляется новое, ломающие изменения — в <code>/v2</code>. Вопросы и запросы разрешений — на ${mail(op)}.</p>
+`, opts);
+}
+
+const PAGES = { '/legal': legalPage, '/privacy': privacyPage, '/consent': consentPage, '/terms': termsPage, '/api-terms': apiTermsPage };
 export const LEGAL_PATHS = Object.keys(PAGES);
 
 export function mountLegalRoutes(app, { env = process.env, isOwner = null } = {}) {
