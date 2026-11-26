@@ -92,6 +92,17 @@ function makeDeps(over = {}) {
     accessories: (v, q) => accessoriesView(v, q),
     missing: (v, q) => missingAccessories(v, q, { whereToGet: id => WHERE[id] || [], priceOf: () => 0 }),
     networth: (v, q) => networthView(v, q),
+    calendar: year => ({ year: year ? Number(year) : 400, mayor: { name: 'Diana' }, money: [] }),
+    leaderboard: q => { calls.push(['leaderboard', q]); return { board: q.board, rows: [{ rank: 1, name: 'Steve', value: 1e9 }], mode: q.mode, tracked: 1, boards: [{ id: 'networth', label: 'Networth' }] }; },
+    guides: { list: () => ({ groups: [{ id: 'combat', title: 'Combat' }], guest: true, guides: [{ id: 'dungeons', title: 'Dungeons' }] }), get: id => (id === 'dungeons' ? { id, title: 'Dungeons', sections: [] } : null) },
+    quotes: ids => Object.fromEntries(ids.map(id => [id, id === 'NOPE' ? null : { buy: 10, sell: 9 }])),
+    trend: id => (id === 'HYPERION' ? { id, market: 'Auction House', now: 1e9, d1: 1.5, d7: null, label: 'растёт' } : { id, market: null, now: 0, d1: null, d7: null, label: 'нет данных' }),
+    movers: period => ({ up: [{ id: 'A', pct: 10, period }], down: [] }),
+    crops: q => { calls.push(['crops', q]); return [{ id: 'WHEAT', perHour: 1e6 }]; },
+    image: async id => (id === 'HYPERION' ? Buffer.from([0x89, 0x50, 0x4e, 0x47]) : null),
+    section: (name, v, q) => (name === 'bank' ? null : { section: name, q, player: v.player.name, ...(name === 'guides' ? { groups: [], guides: [] } : {}) }),
+    guide: (id, v) => (id === 'dungeons' ? { id, title: 'Dungeons', progress: 0.5, player: v.player.name } : null),
+    history: (v, days) => ({ points: [{ t: 1, nw: 5 }], since: 1, tracked: true, days }),
     upgrades: (v, id) => (id === 'HYPERION' ? [{ uuid: 'u-1', where: 'Inventory', name: 'Heroic Hyperion ✪✪✪✪✪', rarity: 'MYTHIC', value: 9e8, recomb: true, market: null, family: null, plan: { kind: 'weapon', steps: [] } }] : []),
     ...over,
   };
@@ -174,8 +185,9 @@ test('открытые ручки отвечают без ключа по схе
   await get(base, '/v1/auctions', '/v1/auctions');
   await get(base, '/v1/market/candles/HYPERION?market=ah&tf=1h', '/v1/market/candles/{id}');
   await get(base, '/v1/market/candles/NOPE', '/v1/market/candles/{id}', { status: 404 });
-  for (const kind of ['bazaar', 'craft', 'forge', 'npc']) await get(base, `/v1/flips/${kind}?limit=3`, '/v1/flips/{kind}');
-  await get(base, '/v1/flips/snipes', '/v1/flips/{kind}', { status: 404 });
+  for (const kind of ['bazaar', 'craft', 'forge', 'npc', 'snipes']) await get(base, `/v1/flips/${kind}?limit=3`, '/v1/flips/{kind}');
+  await get(base, '/v1/flips/snipes', '/v1/flips/{kind}');
+  await get(base, '/v1/flips/nope', '/v1/flips/{kind}', { status: 404 });
   assert.deepEqual(d.calls.find(c => c[0] === 'flips')[2], { limit: 3, max: Infinity });
   await get(base, '/v1/refs/lexicon', '/v1/refs/lexicon');
   await get(base, '/v1/news', '/v1/news');
@@ -319,6 +331,50 @@ test('сравнение: до 4 игроков, ошибка одного не 
   assert.equal((await get(base, '/v1/compare', '/v1/compare', { headers: h, status: 400 })).body.code, 'BAD_QUERY');
   assert.equal((await get(base, '/v1/compare?p=a&p=b&p=c&p=d&p=e', '/v1/compare', { headers: h, status: 400 })).body.code, 'BAD_QUERY');
   assert.equal((await get(base, '/v1/compare?p=bad-nick!', '/v1/compare', { headers: h })).body.players[0].code, 'BAD_NAME');
+}));
+
+test('разделы сайта без ключа: календарь, лидерборды, гайды, цены, рынок, картинки', () => withV1({}, async (base, d) => {
+  await get(base, '/v1/calendar?year=401', '/v1/calendar');
+  const lb = await get(base, '/v1/leaderboard?board=skills&mode=ironman&limit=500', '/v1/leaderboard');
+  assert.deepEqual(d.calls.find(c => c[0] === 'leaderboard')[1], { board: 'skills', mode: 'ironman', limit: 100, find: '' });
+  assert.equal(lb.body.rows[0].name, 'Steve');
+  await get(base, '/v1/guides', '/v1/guides');
+  await get(base, '/v1/guides/dungeons', '/v1/guides/{id}');
+  await get(base, '/v1/guides/nope', '/v1/guides/{id}', { status: 404 });
+  await get(base, '/v1/guides/..%2Fx', '/v1/guides/{id}', { status: 404 });
+  const qt = await get(base, '/v1/quotes?ids=HYPERION,NOPE,bad%20id', '/v1/quotes');
+  assert.deepEqual(Object.keys(qt.body), ['HYPERION', 'NOPE'], 'неверные id отбрасываются');
+  await get(base, '/v1/quotes', '/v1/quotes', { status: 400 });
+  await get(base, '/v1/market/trend/HYPERION', '/v1/market/trend/{id}');
+  await get(base, '/v1/market/trend/DIRT', '/v1/market/trend/{id}', { status: 404 });
+  assert.equal((await get(base, '/v1/market/movers?period=d7', '/v1/market/movers')).body.up[0].period, 'd7');
+  await get(base, '/v1/market/crops?fortune=99999', '/v1/market/crops');
+  assert.deepEqual(d.calls.find(c => c[0] === 'crops')[1], { fortune: 5000, bps: undefined });
+  const img = await fetch(`${base}/v1/items/HYPERION/image`);
+  assert.equal(img.status, 200);
+  assert.equal(img.headers.get('content-type'), 'image/png');
+  assert.equal((await img.arrayBuffer()).byteLength, 4);
+  assert.equal((await fetch(`${base}/v1/items/DIRT/image`)).status, 404);
+}));
+
+test('разделы игрока по ключу: снаряжение, коллекции, Bits, гайды, история', () => withV1({}, async (base, d) => {
+  const T = s => `/v1/players/{name}/profiles/{profile}/${s}`;
+  await get(base, '/v1/players/Steve/profiles/Apple/gear', T('gear'), { status: 401 });
+  const h = { 'X-API-Key': d.keys.create({ name: 'Бот' }).key };
+  for (const s of ['gear', 'progress', 'pets', 'map', 'collections', 'minions', 'museum', 'sacks', 'essence', 'maxwell', 'guides']) {
+    const { body } = await get(base, `/v1/players/Steve/profiles/Apple/${s}`, T(s), { headers: h });
+    assert.equal(body.player, 'Steve');
+  }
+  const bits = await get(base, '/v1/players/Steve/profiles/Apple/bits?bits=5000&fame=10', T('bits'), { headers: h });
+  assert.deepEqual(bits.body.q, { bits: '5000', fame: '10' });
+  assert.equal((await get(base, '/v1/players/Steve/profiles/Apple/bank', T('bank'), { headers: h, status: 404 })).body.code, 'NO_DATA');
+  await get(base, '/v1/players/Steve/profiles/Apple/guides/dungeons', T('guides/{id}'), { headers: h });
+  await get(base, '/v1/players/Steve/profiles/Apple/guides/nope', T('guides/{id}'), { headers: h, status: 404 });
+  const hist = await get(base, '/v1/players/Steve/profiles/Apple/history?range=7d', T('history'), { headers: h });
+  assert.equal(hist.body.range, '7d');
+  assert.equal((await get(base, '/v1/players/Steve/profiles/Apple/history', T('history'), { headers: h })).body.range, 'all');
+  assert.equal((await get(base, '/v1/players/Steve/profiles/Apple/history?range=2y', T('history'), { headers: h, status: 400 })).body.code, 'BAD_QUERY');
+  assert.equal((await get(base, '/v1/players/Secret/profiles/Apple/museum', T('museum'), { headers: h, status: 404 })).body.code, 'HIDDEN');
 }));
 
 // ---------- Swagger ----------

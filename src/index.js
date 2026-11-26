@@ -23,7 +23,7 @@ import { setItemsResource, itemProps, obtainmentOf } from '@sky-guide/core/lib/i
 import { darkAuctionOf } from '@sky-guide/core/analysis/dark-auction.js';
 import * as sbTime from '@sky-guide/core/calendar/time.js';
 import { mountObtainRoutes } from './routes/obtain.js';
-import { mountWealthRoutes } from './routes/wealth.js';
+import { mountWealthRoutes, wealthViews } from './routes/wealth.js';
 import * as moneyMod from '@sky-guide/core/analysis/money.js';
 import { getItemsResource, getCollectionsResource } from '@sky-guide/core/hypixel.js';
 import { setCollectionsResource } from '@sky-guide/core/analysis/roadmap.js';
@@ -44,7 +44,7 @@ import { createHistoryFiles, sliceRange } from '@sky-guide/core/history.js';
 import { attachLiveAdvisor } from './live-advisor/integration/attach.js';
 import { itemValue } from '@sky-guide/core/parse/gear.js';
 import { buildGuides, GROUPS as GUIDE_GROUPS } from '@sky-guide/core/guides/index.js';
-import { mountGuideRoutes } from './mount/guides.js';
+import { mountGuideRoutes, guideList, guideOne } from './mount/guides.js';
 import { createSeo, jsonldScript, originOf, pingIndexNow, INDEXNOW_KEY } from './seo/index.js';
 import { NEWS } from '@sky-guide/core/news/entries.js';
 import { enrichGuide, lexiconPhrases, refsData } from '@sky-guide/core/guides/refs.js';
@@ -54,19 +54,19 @@ import { mountRiftRoutes } from './mount/rift-marks.js';
 import { mountCollectRoutes } from './mount/collectibles-marks.js';
 import { mountHiddenRoutes } from './mount/roadmap-hidden.js';
 import { summarizeForCompare } from '@sky-guide/core/compare.js';
-import { mountMuseumRoutes } from './mount/museum.js';
-import { mountStashRoutes } from './mount/stash.js';
+import { mountMuseumRoutes, museumView } from './mount/museum.js';
+import { mountStashRoutes, createStash } from './mount/stash.js';
 import { setCollectionsResource as setCollectionsPage, analyzeCollections } from '@sky-guide/core/collections/index.js';
-import { mountCollectionRoutes } from './mount/collections.js';
-import { mountMinionRoutes } from './mount/minions.js';
+import { mountCollectionRoutes, collectionsView } from './mount/collections.js';
+import { mountMinionRoutes, minionsView } from './mount/minions.js';
 import { collectOwned } from '@sky-guide/core/advisor/lib/util.js';
 import { calendarBrief } from '@sky-guide/core/calendar/index.js';
-import { mountCalendarRoutes } from './mount/calendar.js';
+import { mountCalendarRoutes, createCalendar } from './mount/calendar.js';
 import { mountNewsRoutes } from './mount/news.js';
 import { createSurveyStore, mountSurveyRoutes } from './survey/index.js';
 import { mountPublicRoutes, renderIndexHtml, createGuestLimiter, publicConfig } from './public.js';
 import { mountLegalRoutes, hiddenPlayers } from './legal.js';
-import { createLeaderboard, createHiddenFilter, mountLeaderboardRoutes } from './leaderboard.js';
+import { createLeaderboard, createHiddenFilter, mountLeaderboardRoutes, leaderboardView } from './leaderboard.js';
 import { seedFriends } from './users.js';
 import { patchReqLabels } from '@sky-guide/core/rift/collections.js';
 import { fixCrafttext } from '@sky-guide/core/market/requirements.js';
@@ -177,6 +177,21 @@ const v1Step = s => ({ id: s.id, cat: s.cat, priority: s.priority, effort: s.eff
   items: s.items || [], cost: s.cost ?? null, payoff: s.payoff || null, needsSaving: !!s.needsSaving, link: s.link || null });
 // Чек-лист улучшений своих экземпляров: и для сайта (/api/item/:id/upgrades), и для /v1
 const upgradeDeps = { neu, priceOf, buyPriceOf, get binVar() { return prices.binVar; }, petPriceOf, translateLoreLine, translateLore };
+// Расчёты разделов — общие для сайта (/api/*) и для /v1: те же зависимости, один кэш
+const textRefsOf = text => enrichGuide({ status: 'ok', sections: [{ kind: 'text', text }] }, { items: neu.items, constants: neu.constants, price: priceOf }).refs;
+const calendar = createCalendar({ textRefs: textRefsOf });
+const museumDeps = () => ({ constants: neu.constants, price: priceOf, name: id => itemName(id) });
+const stash = createStash(() => ({ pricesKey: () => `${prices.bazaarAt}:${prices.binAt}`, constants: neu.constants, price: priceOf, name: id => itemName(id), bazaar: id => prices.bazaar.get(id) || null, npc: id => npcPrices.get(id) || 0, owned: collectOwned, items: neu.items, whereToGet: id => getItemRu(id)?.whereToGet || [],
+  textRefs: textRefsOf }));
+const collectionDeps = () => ({ items: neu.items });
+const minionDeps = m => {
+  const owned = collectOwned(m);
+  return { items: neu.items, constants: neu.constants, price: priceOf, name: id => itemName(id), owned: id => owned.has(id), collections: analyzeCollections(m, { items: neu.items, full: true }) };
+};
+const wealth = wealthViews({ prices, priceOf, itemName });
+const GUEST = { member: { guest: true, inv: {} }, analysis: {} };
+// /v1: куски разделов из разбора (как /api/part/:name), под понятными именами
+const V1_PARTS = { gear: 'gear', progress: 'extras', pets: 'petScore', map: 'map' };
 app.use('/v1', createV1({
   keys: apiKeys, clientIp: req => auth.clientIp(req), open: () => auth.publicView, openPerMin: Number(process.env.V1_PER_MIN) || 120,
   items: {
@@ -191,7 +206,8 @@ app.use('/v1', createV1({
     flips: (kind, q) => (kind === 'bazaar' ? bazaarFlips({ maxPrice: q.max, limit: q.limit })
       : kind === 'craft' ? craftFlips({ limit: q.limit })
         : kind === 'forge' ? moneyMod.forgeFlips({}).slice(0, q.limit)
-          : moneyMod.npcFlips({ mode: 'order' }).slice(0, q.limit)),
+          : kind === 'snipes' ? moneyMod.binSnipes({ maxPrice: q.max, limit: q.limit })
+            : moneyMod.npcFlips({ mode: 'order' }).slice(0, q.limit)),
   },
   lexicon: () => ({ v: neu.loadedAt || 0, ready: neu.items.size > 0, phrases: lexiconPhrases(neu.items, neu.constants) }),
   news: () => { const n = newsView(); return { latest: n.latest, entries: n.entries.map(e => ({ ...e, title: plainNews(e.title), items: e.items.map(plainNews) })) }; },
@@ -214,6 +230,38 @@ app.use('/v1', createV1({
   missing: (v, q) => missingAccessories(v, q, { whereToGet: id => getItemRu(id)?.whereToGet || [], priceOf }),
   networth: (v, q) => networthView(v, q),
   upgrades: (v, id) => itemUpgradeCopies(v.member, id, upgradeDeps),
+  // Открытые разделы
+  calendar: year => calendar(year),
+  leaderboard: q => leaderboardView(board, q),
+  guides: { list: () => guideList(GUEST.member, GUEST.analysis, guideDeps), get: id => guideOne(id, GUEST.member, GUEST.analysis, guideDeps) },
+  quotes: ids => Object.fromEntries(ids.map(id => [id, quoteOf(id)])),
+  trend: id => priceTrend(id),
+  movers: period => moneyMod.topMovers({ period }),
+  crops: q => moneyMod.cropProfits(q.fortune, q.bps),
+  image: id => getRender(id, { scope: 'public' }).catch(() => null),
+  // Разделы игрока
+  section: (name, v, q) => {
+    const m = v.member;
+    switch (name) {
+      case 'collections': return collectionsView(v, collectionDeps);
+      case 'minions': return minionsView(v, minionDeps);
+      case 'museum': return museumView(v, museumDeps);
+      case 'sacks': return stash.sacks(v);
+      case 'essence': return stash.essence(v);
+      case 'bank': return wealth.bank(m);
+      case 'bits': return wealth.bits(m, q);
+      case 'maxwell': return wealth.maxwell(m);
+      case 'guides': return guideList(m, v.analysis || {}, guideDeps);
+      default: return V1_PARTS[name] ? PARTS[V1_PARTS[name]]({ member: m, analysis: v.analysis }) ?? null : undefined;
+    }
+  },
+  guide: (id, v) => guideOne(id, v.member, v.analysis || {}, guideDeps),
+  // История графиков: у владельца и игроков с аккаунтом сайта она личная (как на сайте для посторонних) — не отдаём
+  history: (v, days) => {
+    const personal = !!v.owner || !!auth.users.get(String(v.player?.name || ''));
+    const all = personal ? [] : (v.history || []);
+    return { points: sliceRange(all, days * 24 * 3600_000), since: all[0]?.t || null, tracked: !personal && !!v.historyKey };
+  },
 }));
 app.use(auth.router); // вход: ник + пароль сайта (data/users.json) — до всех страниц и /api; req.sbUser — кто вошёл
 // Лимит запросов с одного адреса (владельцу не мешает): картинки — отдельно, их на странице сотни
@@ -660,22 +708,13 @@ mountHiddenRoutes(app, { getView: req => req.sbView(), isGuest: req => !!req.sbG
 mountNewsRoutes(app, { // «Новости»: журнал изменений сайта, GET /api/news (записи — server/news/entries.js)
   textRefs: text => enrichGuide({ status: 'ok', sections: [{ kind: 'text', text }] }, { items: neu.items, constants: neu.constants, price: priceOf }).refs,
 });
-mountCalendarRoutes(app, { // мэр, выборы и календарь событий: GET /api/calendar
-  textRefs: text => enrichGuide({ status: 'ok', sections: [{ kind: 'text', text }] }, { items: neu.items, constants: neu.constants, price: priceOf }).refs,
-});
-mountMuseumRoutes(app, { getView: req => req.sbView(), deps: () => ({ constants: neu.constants, price: priceOf, name: id => itemName(id) }) });
+mountCalendarRoutes(app, { calendar }); // мэр, выборы и календарь событий: GET /api/calendar
+mountMuseumRoutes(app, { getView: req => req.sbView(), deps: museumDeps });
 // Мешки и эссенции выбранного игрока: /api/sacks, /api/essence
-mountStashRoutes(app, { getView: req => req.sbView(), deps: () => ({ pricesKey: () => `${prices.bazaarAt}:${prices.binAt}`, constants: neu.constants, price: priceOf, name: id => itemName(id), bazaar: id => prices.bazaar.get(id) || null, npc: id => npcPrices.get(id) || 0, owned: collectOwned, items: neu.items, whereToGet: id => getItemRu(id)?.whereToGet || [],
-  textRefs: text => enrichGuide({ status: 'ok', sections: [{ kind: 'text', text }] }, { items: neu.items, constants: neu.constants, price: priceOf }).refs }) });
+mountStashRoutes(app, { getView: req => req.sbView(), stash });
 // Коллекции (тиры, что откроет следующий) и миньоны (слоты, что крафтить, доходность): /api/collections, /api/minions
-mountCollectionRoutes(app, { getView: req => req.sbView(), deps: () => ({ items: neu.items }) });
-mountMinionRoutes(app, {
-  getView: req => req.sbView(),
-  deps: m => {
-    const owned = collectOwned(m);
-    return { items: neu.items, constants: neu.constants, price: priceOf, name: id => itemName(id), owned: id => owned.has(id), collections: analyzeCollections(m, { items: neu.items, full: true }) };
-  },
-});
+mountCollectionRoutes(app, { getView: req => req.sbView(), deps: collectionDeps });
+mountMinionRoutes(app, { getView: req => req.sbView(), deps: minionDeps });
 mountObtainRoutes(app, { getMember: async req => (await req.sbView().catch(() => null))?.member || null, neu, prices, getCollections: () => moneyMod.craftCollections });
 mountItemUpgradeRoutes(app, async req => (await req.sbView().catch(() => null))?.member || null, upgradeDeps);
 // Bank (проценты, счета), Bits (Community Shop), Maxwell (силы и Tuning): /api/bank, /api/bits, /api/maxwell

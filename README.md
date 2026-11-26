@@ -21,11 +21,13 @@
 
 Открытый API с описанием [`openapi.yaml`](openapi.yaml) и страницей Swagger на [`/api/docs`](https://sky-guide.ru/api/docs/).
 
-- **Без ключа:** предметы (`/v1/items/{id}`, `/obtain`), поиск, Bazaar, аукцион, свечи, флипы, словарь терминов, новости, статус.
+- **Без ключа:** предметы (`/v1/items/{id}`, `/obtain`, `/image`), поиск, Bazaar, аукцион, свечи, цены `quotes`, тренд, лидеры роста,
+  доход с Farming, флипы и снайпы, календарь и мэр, лидерборды, гайды, словарь терминов, новости, статус.
   Лимит — `V1_PER_MIN` запросов в минуту с одного адреса (по умолчанию 120).
 - **По ключу** `X-API-Key`: готовые разборы профиля `/v1/players/{name}/profiles/{profile}/…` — `summary`, `plan` (что делать дальше),
   `money` (заработок), `networth`, `accessories`, `accessories/missing` (недостающие аксессуары с ценой и где взять),
-  `items/{id}/upgrades` (улучшения своего предмета) — и сравнение `/v1/compare?p=Ник/Профиль`. Только для своих клиентов
+  `items/{id}/upgrades` (улучшения своего предмета), разделы сайта `gear`, `progress`, `pets`, `map`, `collections`, `minions`,
+  `museum`, `sacks`, `essence`, `bank`, `bits`, `maxwell`, `guides[/{id}]`, `history` — и сравнение `/v1/compare?p=Ник/Профиль`. Только для своих клиентов
   (бот Telegram или Discord, мод) — так требуют правила Hypixel. Ключи выдаёт и отзывает владелец на странице «Аккаунт», у каждого свой лимит в минуту;
   в `data/api-keys.json` лежит только хеш ключа.
 - Язык — `?lang=en` или `X-Lang: en`. Ошибки — `{ "error", "code" }`.

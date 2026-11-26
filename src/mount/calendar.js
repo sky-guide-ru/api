@@ -1,10 +1,11 @@
 // Адреса сервера для calendar/index.js (расчёты — в @sky-guide/core)
 import { calendarView } from '@sky-guide/core/calendar/index.js';
 
-export function mountCalendarRoutes(app, { textRefs = null } = {}) {
+/** Календарь с подсказками по тексту: (year?) → вид. Для /api/calendar и /v1/calendar */
+export function createCalendar({ textRefs = null } = {}) {
   const refsCache = new Map();
-  app.get('/api/calendar', (req, res) => {
-    const y = req.query.year != null ? Number(req.query.year) : undefined;
+  return year => {
+    const y = year != null && year !== '' ? Number(year) : undefined;
     const view = calendarView(Date.now(), { year: Number.isInteger(y) ? y : undefined });
     if (textRefs && view.money.length) {
       const text = view.money.map(h => `${h.title}: ${h.note}`).join('\n');
@@ -15,6 +16,10 @@ export function mountCalendarRoutes(app, { textRefs = null } = {}) {
       }
       view.moneyRefs = refsCache.get(text);
     }
-    res.json(view);
-  });
+    return view;
+  };
+}
+
+export function mountCalendarRoutes(app, { calendar }) {
+  app.get('/api/calendar', (req, res) => res.json(calendar(req.query.year)));
 }

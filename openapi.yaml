@@ -1,18 +1,20 @@
 openapi: 3.1.0
 info:
   title: Sky Guide API
-  version: 1.1.0
+  version: 1.2.0
   summary: Предметы, рынок и расчёты по Hypixel SkyBlock на русском и английском
   description: |
     Открытый API сайта [sky-guide.ru](https://sky-guide.ru). Все ответы — расчёты и переводы Sky Guide,
     а не пересказ ответа Hypixel.
 
-    **Без ключа** открыты предметы, поиск, Bazaar, аукцион, свечи, флипы, словарь терминов, новости и статус.
+    **Без ключа** открыты предметы и их картинки, поиск, Bazaar, аукцион, свечи, цены и тренды, флипы, календарь и мэр,
+    лидерборды, гайды, словарь терминов, новости и статус.
     Лимит — 120 запросов в минуту с одного адреса.
 
     **Данные игроков** (`/v1/players/...` и `/v1/compare`) — только по ключу в заголовке `X-API-Key`, для своих клиентов
     Sky Guide (бот Telegram или Discord, мод). Это готовые разборы, как на сайте: план «что делать», недостающие
-    аксессуары с ценами и где взять, Magical Power, networth, заработок, улучшения предметов, сравнение. Так требуют правила Hypixel: нельзя раздавать их данные сторонним разработчикам.
+    аксессуары с ценами и где взять, Magical Power, networth, заработок, улучшения предметов, сравнение и все разделы
+    сайта по игроку (снаряжение, коллекции, миньоны, музей, мешки, эссенции, Bank, Bits, Maxwell, гайды, история графиков). Так требуют правила Hypixel: нельзя раздавать их данные сторонним разработчикам.
     Ключи выдаёт владелец сайта, у каждого ключа свой лимит в минуту.
 
     **Язык.** По умолчанию русский; английский — `?lang=en` или заголовок `X-Lang: en`.
@@ -252,18 +254,19 @@ paths:
       summary: Флипы
       description: |
         Выгодные перепродажи по текущим ценам: `bazaar` — заказ на покупку и продажу на Bazaar,
-        `craft` — купить ингредиенты и скрафтить, `forge` — Forge в Dwarven Mines, `npc` — купить на Bazaar и продать NPC.
+        `craft` — купить ингредиенты и скрафтить, `forge` — Forge в Dwarven Mines, `npc` — купить на Bazaar и продать NPC,
+        `snipes` — лоты аукциона заметно дешевле обычной цены продажи.
       parameters:
         - name: kind
           in: path
           required: true
-          schema: { type: string, enum: [bazaar, craft, forge, npc] }
+          schema: { type: string, enum: [bazaar, craft, forge, npc, snipes] }
         - name: limit
           in: query
           schema: { type: integer, minimum: 1, maximum: 200, default: 40 }
         - name: max
           in: query
-          description: Только для bazaar — не дороже этой цены за штуку
+          description: Только для bazaar и snipes — не дороже этой цены
           schema: { type: number }
         - $ref: '#/components/parameters/Lang'
       responses:
@@ -275,7 +278,7 @@ paths:
                 type: object
                 required: [kind, items]
                 properties:
-                  kind: { type: string, enum: [bazaar, craft, forge, npc] }
+                  kind: { type: string, enum: [bazaar, craft, forge, npc, snipes] }
                   items:
                     type: array
                     items: { $ref: '#/components/schemas/Flip' }
@@ -311,6 +314,192 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/News' }
+        '429': { $ref: '#/components/responses/Rate' }
+
+  /v1/calendar:
+    get:
+      tags: [Справка]
+      operationId: getCalendar
+      summary: Календарь и мэр
+      description: 'Мэр и министр сейчас, выборы, события SkyBlock по датам и чем они выгодны — как раздел «Календарь».'
+      parameters:
+        - name: year
+          in: query
+          description: Год SkyBlock (по умолчанию текущий)
+          schema: { type: integer }
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Календарь и мэр
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Section' }
+        '429': { $ref: '#/components/responses/Rate' }
+
+  /v1/leaderboard:
+    get:
+      tags: [Справка]
+      operationId: getLeaderboard
+      summary: Лидерборды
+      description: 'Игроки, которых открывали на сайте, по networth, скиллам, Catacombs, Slayers и другим таблицам. Список таблиц — в boards ответа.'
+      parameters:
+        - name: board
+          in: query
+          description: Таблица (id из boards ответа)
+          schema: { type: string, default: networth }
+        - name: mode
+          in: query
+          schema: { type: string, enum: [all, normal, ironman, other], default: all }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 100 }
+        - name: find
+          in: query
+          description: Ник — найти место игрока
+          schema: { type: string, maxLength: 36 }
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Лидерборды
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Leaderboard' }
+        '429': { $ref: '#/components/responses/Rate' }
+
+  /v1/guides:
+    get:
+      tags: [Справка]
+      operationId: getGuides
+      summary: Гайды
+      description: 'Все гайды сайта по направлениям (Dungeons, Slayers, Kuudra, Rift, Fishing…) — общие, без привязки к профилю.'
+      parameters:
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Гайды
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GuideList' }
+        '429': { $ref: '#/components/responses/Rate' }
+
+  /v1/guides/{id}:
+    get:
+      tags: [Справка]
+      operationId: getGuide
+      summary: Гайд
+      description: 'Гайд целиком: разделы, шаги, предметы и подсказки к терминам (refs).'
+      parameters:
+        - $ref: '#/components/parameters/GuideId'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Гайд
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Section' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+
+  /v1/quotes:
+    get:
+      tags: [Рынок]
+      operationId: getQuotes
+      summary: Цены купить и продать
+      description: 'Живые цены «купить сейчас / продать сейчас» для списка предметов (Bazaar или аукцион). Нет цены — null.'
+      parameters:
+        - name: ids
+          in: query
+          required: true
+          description: SkyBlock ID через запятую (до 200)
+          schema: { type: string, example: 'ENCHANTED_DIAMOND,HYPERION' }
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Цены купить и продать
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: { type: [object, 'null'], additionalProperties: true } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/Rate' }
+
+  /v1/market/trend/{id}:
+    get:
+      tags: [Рынок]
+      operationId: getPriceTrend
+      summary: Тренд цены
+      description: 'Цена сейчас, изменение за сутки и неделю, минимум, максимум и медиана за 7 дней.'
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Тренд цены
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Trend' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+
+  /v1/market/movers:
+    get:
+      tags: [Рынок]
+      operationId: getMarketMovers
+      summary: Лидеры роста и падения
+      description: 'Предметы, которые сильнее всего подорожали и подешевели за сутки или неделю (только ходовые).'
+      parameters:
+        - name: period
+          in: query
+          schema: { type: string, enum: [d1, d7], default: d1 }
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Лидеры роста и падения
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Movers' }
+        '429': { $ref: '#/components/responses/Rate' }
+
+  /v1/market/crops:
+    get:
+      tags: [Рынок]
+      operationId: getCropProfits
+      summary: Доход с Farming
+      description: 'Сколько монет в час дают культуры при заданном Farming Fortune — по ценам Bazaar и NPC.'
+      parameters:
+        - name: fortune
+          in: query
+          description: Farming Fortune
+          schema: { type: number, minimum: 0, maximum: 5000 }
+        - name: bps
+          in: query
+          description: Блоков в секунду
+          schema: { type: number, minimum: 1, maximum: 40 }
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Доход с Farming
+          content:
+            application/json:
+              schema: { type: array, items: { type: object, additionalProperties: true } }
+        '429': { $ref: '#/components/responses/Rate' }
+
+  /v1/items/{id}/image:
+    get:
+      tags: [Предметы]
+      operationId: getItemImage
+      summary: Картинка предмета
+      description: Иконка предмета в PNG (как на сайте), для карточек бота и мода.
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200':
+          description: PNG
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '429': { $ref: '#/components/responses/Rate' }
 
   /v1/players/{name}/profiles:
@@ -534,6 +723,378 @@ paths:
         '429': { $ref: '#/components/responses/Rate' }
         '503': { $ref: '#/components/responses/Unavailable' }
 
+  /v1/players/{name}/profiles/{profile}/gear:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerGear
+      summary: Снаряжение
+      description: 'Надетая броня и экипировка, оружие, инструменты, сеты брони и самые дорогие вещи с оценкой — как раздел «Снаряжение».'
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Снаряжение
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Section' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/players/{name}/profiles/{profile}/progress:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerProgress
+      summary: Прогресс — остальное
+      description: 'Нижние блоки раздела «Прогресс» сайта и Chocolate Factory.'
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Прогресс — остальное
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Section' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/players/{name}/profiles/{profile}/pets:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerPets
+      summary: Питомцы и Pet Score
+      description: 'Pet Score и Taming — как раздел «Питомцы».'
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Питомцы и Pet Score
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Section' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/players/{name}/profiles/{profile}/map:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerMap
+      summary: Карта прогрессии
+      description: 'Карта прогрессии из раздела «Что делать».'
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Карта прогрессии
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Section' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/players/{name}/profiles/{profile}/collections:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerCollections
+      summary: Коллекции
+      description: 'Коллекции с тирами и что откроет следующий тир.'
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Коллекции
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Section' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/players/{name}/profiles/{profile}/minions:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerMinions
+      summary: Миньоны
+      description: 'Миньоны: слоты, что крафтить дальше, доходность, улучшения и топливо.'
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Миньоны
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Section' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/players/{name}/profiles/{profile}/museum:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerMuseum
+      summary: Музей
+      description: 'Museum игрока — как раздел «Музей» сайта.'
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Музей
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Section' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/players/{name}/profiles/{profile}/sacks:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerSacks
+      summary: Мешки
+      description: 'Мешки (Sacks): что в них лежит, сколько стоит и какие мешки взять дальше.'
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Мешки
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Section' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/players/{name}/profiles/{profile}/essence:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerEssence
+      summary: Эссенции
+      description: 'Эссенции: сколько есть, сколько стоят и на что потратить.'
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Эссенции
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Section' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/players/{name}/profiles/{profile}/bank:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerBank
+      summary: Bank
+      description: 'Проценты Bank и улучшения счёта — как на сайте.'
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Bank
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Section' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/players/{name}/profiles/{profile}/bits:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerBits
+      summary: Bits
+      description: 'Что выгоднее купить за Bits в Community Shop.'
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - name: bits
+          in: query
+          description: Сколько Bits есть (если не задано — из профиля)
+          schema: { type: number, minimum: 0 }
+        - name: fame
+          in: query
+          description: Fame (если не задано — из профиля)
+          schema: { type: number, minimum: 0 }
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Bits
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Section' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/players/{name}/profiles/{profile}/maxwell:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerMaxwell
+      summary: Maxwell
+      description: 'Силы Maxwell и Tuning для Magical Power игрока.'
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Maxwell
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Section' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/players/{name}/profiles/{profile}/guides:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerGuides
+      summary: Гайды под игрока
+      description: 'Гайды с отметками, что уже сделано и что дальше, по профилю игрока.'
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Гайды под игрока
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GuideList' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/players/{name}/profiles/{profile}/guides/{id}:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerGuide
+      summary: Гайд под игрока
+      description: 'Гайд целиком, с прогрессом игрока по шагам.'
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - $ref: '#/components/parameters/GuideId'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Гайд под игрока
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Section' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/players/{name}/profiles/{profile}/history:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerHistory
+      summary: История графиков
+      description: 'Точки графиков профиля (networth, скиллы, Slayers…) по часам. Есть, пока профиль отслеживается сайтом; у игроков с аккаунтом сайта история личная и не отдаётся.'
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - name: range
+          in: query
+          schema: { type: string, enum: ['1d', '7d', '30d', '365d', all], default: all }
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: История графиков
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/History' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
   /v1/compare:
     get:
       tags: [Игроки]
@@ -595,6 +1156,13 @@ components:
       description: Название профиля (Apple, Banana…) или `selected` — тот, где игрок сейчас играет
       schema: { type: string, maxLength: 40 }
       example: selected
+    GuideId:
+      name: id
+      in: path
+      required: true
+      description: id гайда (из списка гайдов)
+      schema: { type: string, pattern: '^[a-z0-9-]{1,40}$' }
+      example: dungeons
     Lang:
       name: lang
       in: query
@@ -1174,3 +1742,68 @@ components:
                   query: { type: object, properties: { player: { type: string }, profile: { type: string } } }
                   error: { type: string }
                   code: { type: string }
+
+    Section:
+      type: object
+      additionalProperties: true
+      description: Ответ раздела сайта — те же поля, что получает страница этого раздела.
+
+    GuideList:
+      type: object
+      required: [groups, guides]
+      properties:
+        groups: { description: Группы гайдов }
+        guest: { type: boolean }
+        guides:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            properties:
+              id: { type: string }
+              title: { type: string }
+
+    Leaderboard:
+      type: object
+      required: [boards, mode]
+      additionalProperties: true
+      properties:
+        mode: { type: string }
+        tracked: { type: integer, description: Сколько игроков в таблицах }
+        boards:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              label: { type: string }
+
+    Trend:
+      type: object
+      required: [id, market]
+      additionalProperties: true
+      properties:
+        id: { type: string }
+        market: { type: [string, 'null'], examples: [Bazaar, Auction House] }
+        now: { type: number }
+        d1: { type: [number, 'null'], description: 'Изменение за сутки, %' }
+        d7: { type: [number, 'null'], description: 'Изменение за неделю, %' }
+        label: { type: string }
+
+    Movers:
+      type: object
+      required: [up, down]
+      properties:
+        up: { type: array, items: { type: object, additionalProperties: true } }
+        down: { type: array, items: { type: object, additionalProperties: true } }
+
+    History:
+      type: object
+      required: [player, profile, range, points, tracked]
+      properties:
+        player: { $ref: '#/components/schemas/PlayerRef' }
+        profile: { type: [string, 'null'] }
+        range: { type: string }
+        since: { type: [number, 'null'] }
+        tracked: { type: boolean, description: Сайт копит историю этого профиля }
+        points: { type: array, items: { type: object, additionalProperties: true, properties: { t: { type: number } } } }
