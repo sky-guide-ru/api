@@ -248,20 +248,20 @@ export function createActionLimiter({ max = 5, windowMs = 3600_000, clock = () =
  * POST /api/leaderboard/remove { player }                — убрать себя из рейтинга (открыто Visitors, с лимитом)
  * POST /api/leaderboard/restore { player }               — вернуть (только владелец)
  */
+/** Таблица лидеров: для /api/leaderboard и /v1/leaderboard. q: { board, mode, limit, find } */
+export function leaderboardView(board, q = {}) {
+  const mode = ['all', 'normal', 'ironman', 'other'].includes(q.mode) ? q.mode : 'all';
+  const r = board.top(String(q.board || 'networth'), { mode, limit: Number(q.limit) || 100, find: String(q.find || '').trim().slice(0, 36) });
+  return { ...r, mode, tracked: board.size(), boards: Object.entries(BOARDS).map(([id, b]) => ({ id, label: b.label })) };
+}
+
 export function mountLeaderboardRoutes(app, { board, clientIp = req => req.ip, isAdmin = () => false, express }) {
   const limit = createActionLimiter({ max: 5, windowMs: 3600_000 });
   const json = express.json({ limit: '2kb' });
   const nick = s => String(s || '').trim().slice(0, 36);
   const valid = s => /^[A-Za-z0-9_]{1,16}$/.test(s) || /^[0-9a-f]{32}$/i.test(s.replace(/-/g, ''));
 
-  app.get('/api/leaderboard', (req, res) => {
-    const mode = ['all', 'normal', 'ironman', 'other'].includes(req.query.mode) ? req.query.mode : 'all';
-    const r = board.top(String(req.query.board || 'networth'), { mode, limit: Number(req.query.limit) || 100, find: nick(req.query.find) });
-    res.set('Cache-Control', 'no-store').json({
-      ...r, mode, tracked: board.size(),
-      boards: Object.entries(BOARDS).map(([id, b]) => ({ id, label: b.label })),
-    });
-  });
+  app.get('/api/leaderboard', (req, res) => res.set('Cache-Control', 'no-store').json(leaderboardView(board, req.query)));
 
   app.post('/api/leaderboard/remove', json, (req, res) => {
     if (req.headers['sec-fetch-site'] === 'cross-site') return res.status(403).json({ error: 'Только со страницы сайта' });

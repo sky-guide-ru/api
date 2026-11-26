@@ -1,15 +1,20 @@
 // Публичный API /v1: описание — openapi.yaml в корне репо (сначала описание, потом код), страница Swagger — /api/docs.
 //
-// Открыто всем (без ключа): предметы, поиск, Bazaar, аукцион, свечи, флипы, словарь терминов, новости, статус.
-// Данные игроков — только по ключу X-API-Key, для своих клиентов (бот, мод): так требуют правила Hypixel.
+// Открыто всем (без ключа): предметы и картинки, поиск, Bazaar, аукцион, свечи, цены, тренды, флипы, календарь, лидерборды,
+// гайды, словарь терминов, новости, статус. Данные игроков (разборы и разделы сайта) — только по ключу X-API-Key,
+// для своих клиентов (бот, мод): так требуют правила Hypixel.
 // Все ответы — наши расчёты и переводы, а не пересказ ответа Hypixel. Язык: ?lang=en или заголовок X-Lang: en.
 //
 // Старые адреса /api/* сайт использует как раньше: /v1 только добавляется.
 import express from 'express';
 import { createRateLimiter } from '../lib/guard.js';
 
-export const V1_VERSION = '1.1.0';
-const FLIPS = ['bazaar', 'craft', 'forge', 'npc'];
+export const V1_VERSION = '1.2.0';
+const FLIPS = ['bazaar', 'craft', 'forge', 'npc', 'snipes'];
+// Разделы игрока — те же расчёты, что страницы сайта
+export const SECTIONS = ['gear', 'progress', 'pets', 'map', 'collections', 'minions', 'museum', 'sacks', 'essence', 'bank', 'bits', 'maxwell', 'guides'];
+const RANGES = { '1d': 1, '7d': 7, '30d': 30, '365d': 365, all: 0 };
+const GUIDE_ID = /^[a-z0-9-]{1,40}$/;
 const NICK = /^[A-Za-z0-9_]{1,16}$/;
 const ITEM_ID = /^[A-Za-z0-9_:;\-.]{1,80}$/;
 const MISSING_SORTS = ['perMp', 'price', 'mp'];
@@ -33,7 +38,9 @@ const PLAYER_ERRORS = {
  *   items: { card(id, { lvl }), obtain(id), search(q, limit) }; market: { bazaar(q), auctions(q), candles(id, o), flips(kind, q) };
  *   lexicon(), news(), status(), version();
  *   players: { view({ player, profile }), hidden(name) }; summary(v), plan(v), money(v);
- *   accessories(v, q), missing(v, q), networth(v, q), upgrades(v, id) — null, если у профиля нет этих данных
+ *   accessories(v, q), missing(v, q), networth(v, q), upgrades(v, id) — null, если у профиля нет этих данных;
+ *   calendar(year), leaderboard(q), guides: { list(), get(id) }, quotes(ids), trend(id), movers(period), crops(q), image(id) → png;
+ *   section(name, v, q) для SECTIONS, guide(id, v), history(v, days)
  */
 export function createV1(d) {
   const r = express.Router({ caseSensitive: true });
@@ -135,6 +142,40 @@ export function createV1(d) {
     cache(res, 30);
     res.json({ kind, items: d.market.flips(kind, { limit: int(req.query.limit, 40, 1, 200), max: req.query.max ? Number(req.query.max) : Infinity }) });
   });
+  r.get('/calendar', open, (req, res) => { cache(res, 60); res.json(d.calendar(req.query.year)); });
+  r.get('/leaderboard', open, (req, res) => {
+    cache(res, 60);
+    res.json(d.leaderboard({ board: String(req.query.board || 'networth'), mode: String(req.query.mode || 'all'), limit: int(req.query.limit, 100, 1, 100), find: String(req.query.find || '').slice(0, 36) }));
+  });
+  r.get('/guides', open, (req, res) => { cache(res, 300); res.json(d.guides.list()); });
+  r.get('/guides/:id', open, (req, res) => {
+    const id = String(req.params.id);
+    const g = GUIDE_ID.test(id) ? d.guides.get(id) : null;
+    if (!g) return fail(res, 404, 'NOT_FOUND', 'Гайд не найден — список на /v1/guides');
+    cache(res, 300); res.json(g);
+  });
+  r.get('/quotes', open, (req, res) => {
+    const ids = String(req.query.ids || '').split(',').map(x => x.trim()).filter(x => ITEM_ID.test(x)).slice(0, 200);
+    if (!ids.length) return fail(res, 400, 'BAD_QUERY', 'Нужен параметр ids=A,B (до 200 id)');
+    cache(res, 30); res.json(d.quotes(ids));
+  });
+  r.get('/market/trend/:id', open, (req, res) => {
+    const id = itemId(req, res); if (!id) return;
+    const t = d.trend(id);
+    if (!t?.market) return fail(res, 404, 'NOT_FOUND', 'Нет цены этого предмета на Bazaar и аукционе');
+    cache(res, 60); res.json(t);
+  });
+  r.get('/market/movers', open, (req, res) => { cache(res, 60); res.json(d.movers(req.query.period === 'd7' ? 'd7' : 'd1')); });
+  r.get('/market/crops', open, (req, res) => {
+    const num = (v, min, max) => (v == null || v === '' || !Number.isFinite(Number(v)) ? undefined : Math.max(min, Math.min(max, Number(v))));
+    cache(res, 60); res.json(d.crops({ fortune: num(req.query.fortune, 0, 5000), bps: num(req.query.bps, 1, 40) }));
+  });
+  r.get('/items/:id/image', open, wrap(async (req, res) => {
+    const id = itemId(req, res); if (!id) return;
+    const buf = await d.image(id);
+    if (!buf) return fail(res, 404, 'NOT_FOUND', 'Нет картинки для этого предмета');
+    res.set({ 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' }).send(buf);
+  }));
   r.get('/refs/lexicon', open, (req, res) => { const l = d.lexicon(); cache(res, l.ready ? 3600 : 0); res.json(l); });
   r.get('/news', open, (req, res) => { cache(res, 300); res.json(d.news()); });
 
@@ -195,6 +236,20 @@ export function createV1(d) {
   part('items/:id/upgrades', (v, req, res) => {
     const id = itemId(req, res); if (!id) return null;
     return { player: { name: v.player?.name || null, uuid: v.player?.uuid || null }, profile: v.member?.profileName || null, updatedAt: v.updatedAt || 0, id, copies: d.upgrades(v, id) || [] };
+  });
+
+  // Разделы сайта для игрока: те же ответы, что видит страница раздела
+  for (const name of SECTIONS) part(name, (v, req) => d.section(name, v, { bits: req.query.bits, fame: req.query.fame }));
+  part('guides/:id', (v, req, res) => {
+    const id = String(req.params.id);
+    const g = GUIDE_ID.test(id) ? d.guide(id, v) : null;
+    if (!g) { fail(res, 404, 'NOT_FOUND', 'Гайд не найден — список в …/guides'); return null; }
+    return g;
+  });
+  part('history', (v, req, res) => {
+    const range = req.query.range == null ? 'all' : String(req.query.range);
+    if (!(range in RANGES)) { fail(res, 400, 'BAD_QUERY', `range бывает: ${Object.keys(RANGES).join(', ')}`); return null; }
+    return { player: { name: v.player?.name || null, uuid: v.player?.uuid || null }, profile: v.member?.profileName || null, range, ...d.history(v, RANGES[range]) };
   });
 
   // Сравнение: ?p=Ник/Профиль (2–4 раза). Ошибка одного игрока не ломает ответ — у него будет error и code
