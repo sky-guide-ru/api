@@ -1,0 +1,26 @@
+{
+  "name": "@sky-guide/api",
+  "version": "0.1.0",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "private": true,
+  "description": "Сервер Sky Guide: адреса API, вход, OpenAPI и Swagger",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sky-guide-ru/api.git"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@sky-guide/core": "github:sky-guide-ru/core#v0.1.0",
+    "dotenv": "^18.0.10",
+    "express": "^5.3.0",
+    "mmdb-lib": "^3.0.5"
+  }
+}
