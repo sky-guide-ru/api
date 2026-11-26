@@ -124,20 +124,10 @@ export function createCharts({ dataDir, prices, itemName, textRefs = null, log =
 
   function mount(app) {
     app.get('/api/market/candles/:id', async (req, res) => {
-      const id = String(req.params.id);
-      const tf = TIMEFRAMES[req.query.tf] ? String(req.query.tf) : '1h';
-      const limit = Math.max(10, Math.min(Number(req.query.limit) || 1000, 3000));
-      const to = req.query.to ? Number(req.query.to) : Infinity;
-      if (req.query.m === 'ah') return ahCandles(req, res, id, tf, { to, limit });
       try {
-        const { candles, hasMore } = await store.candles(id, tf, { to, limit });
-        const bz = prices.bazaar.get(id);
+        const out = await candlesFor(String(req.params.id), { market: req.query.m === 'ah' ? 'ah' : 'bazaar', tf: req.query.tf, limit: Number(req.query.limit) || 1000, to: req.query.to ? Number(req.query.to) : Infinity });
         res.set('Cache-Control', 'no-store');
-        res.json({
-          id, name: itemName(id) || id, tf, candles: candles.map(compact), hasMore,
-          live: bz ? { buy: bz.buy, sell: bz.sell, buyWeek: bz.buyWeek, sellWeek: bz.sellWeek, buyOrders: bz.buyOrders, sellOrders: bz.sellOrders, buyVol: bz.buyVol, sellVol: bz.sellVol, at: prices.bazaarAt } : null,
-          keep: { [TIMEFRAMES[tf].base]: BASES[TIMEFRAMES[tf].base].keep },
-        });
+        res.json(out);
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
     app.get('/api/market/charts', (req, res) => res.json(status()));
@@ -155,20 +145,31 @@ export function createCharts({ dataDir, prices, itemName, textRefs = null, log =
   }
 
   /** Свечи аукциона + сводка предмета (lowest BIN, продажи, варианты) для карточки «Рынка». */
-  async function ahCandles(req, res, key, tf, { to, limit }) {
+  /** Свечи для /api/market/candles/:id и /v1/market/candles/{id}: Bazaar (market='bazaar') или аукцион ('ah') */
+  async function candlesFor(id, { market = 'bazaar', tf: wantTf, limit: wantLimit = 1000, to = Infinity } = {}) {
+    const tf = TIMEFRAMES[wantTf] ? String(wantTf) : '1h';
+    const limit = Math.max(10, Math.min(Number(wantLimit) || 1000, 3000));
+    if (market === 'ah') return ahCandles(id, tf, { to, limit });
+    const { candles, hasMore } = await store.candles(id, tf, { to, limit });
+    const bz = prices.bazaar.get(id);
+    return {
+      id, name: itemName(id) || id, tf, candles: candles.map(compact), hasMore,
+      live: bz ? { buy: bz.buy, sell: bz.sell, buyWeek: bz.buyWeek, sellWeek: bz.sellWeek, buyOrders: bz.buyOrders, sellOrders: bz.sellOrders, buyVol: bz.buyVol, sellVol: bz.sellVol, at: prices.bazaarAt } : null,
+      keep: { [TIMEFRAMES[tf].base]: BASES[TIMEFRAMES[tf].base].keep },
+    };
+  }
+
+  async function ahCandles(key, tf, { to, limit }) {
     // Минутных свечей у аукциона нет (скан раз в 3 минуты): 1 мин показываем как 5 мин
     const tfa = tf === '1m' ? '5m' : tf;
-    try {
-      const { candles, hasMore } = await ah.candles(key, tfa, { to, limit });
-      const row = ahList?.row(key) || null;
-      res.set('Cache-Control', 'no-store');
-      res.json({
-        id: key, market: 'ah', name: row?.name || itemName(key) || key, tf: tfa, candles: candles.map(compact), hasMore,
-        live: row ? { ...row, buy: row.price, sell: row.median, at: prices.binAt } : null,
-        variants: ahList?.variants(key) || [],
-        keep: { [TIMEFRAMES[tfa].base]: AH_BASES[TIMEFRAMES[tfa].base]?.keep ?? 0 },
-      });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    const { candles, hasMore } = await ah.candles(key, tfa, { to, limit });
+    const row = ahList?.row(key) || null;
+    return {
+      id: key, market: 'ah', name: row?.name || itemName(key) || key, tf: tfa, candles: candles.map(compact), hasMore,
+      live: row ? { ...row, buy: row.price, sell: row.median, at: prices.binAt } : null,
+      variants: ahList?.variants(key) || [],
+      keep: { [TIMEFRAMES[tfa].base]: AH_BASES[TIMEFRAMES[tfa].base]?.keep ?? 0 },
+    };
   }
 
   // Обход десятков тысяч файлов — в фоне и не чаще раза в 10 минут (панель «Сервер» спрашивает каждые 5 с):
@@ -186,7 +187,7 @@ export function createCharts({ dataDir, prices, itemName, textRefs = null, log =
   };
 
   return {
-    store, ah, onBazaar, onAuctionScan, onAuctionSale, start, mount, status, seedFromHourly, seedDemo,
+    store, ah, onBazaar, onAuctionScan, onAuctionSale, start, mount, candlesFor, status, seedFromHourly, seedDemo,
     close: () => Promise.all([store.close(), ah.close()]), closeSync: () => { store.closeSync(); ah.closeSync(); }, stop: () => timers.forEach(t => clearInterval(t)),
   };
 }

@@ -84,6 +84,13 @@ import { checkMailDns } from './lib/mail-dns.js';
 import { createFeedback, mountFeedbackRoutes } from './feedback.js';
 import { langMiddleware, isEn, inLang, translateDeep, getTranslator, preferredLang } from '@sky-guide/core/i18n/lang.js';
 import { tx } from '@sky-guide/core/i18n/msg.js';
+import { createV1 } from './v1/index.js';
+import { createKeyStore } from './v1/keys.js';
+import { mountDocs } from './v1/docs.js';
+import { obtainGuide } from './routes/obtain.js';
+import { newsView } from '@sky-guide/core/news/index.js';
+import { plainNews } from '@sky-guide/core/news/links.js';
+import { createRequire } from 'node:module';
 // Английская версия показывает описания предметов как в игре (оригинал), русская — переведённые
 const translateLore = lines => (isEn() ? { lines: lines || [] } : translateLoreRu(lines));
 const translateLoreLine = line => (isEn() ? line : translateLoreLineRu(line));
@@ -94,7 +101,9 @@ app.use(securityHeaders()); // нельзя встроить сайт в чуж�
 app.use(gzip()); // сжатие JSON/JS/CSS: профиль и сайт грузятся быстрее, особенно с телефона
 setTimeout(() => getTranslator(), 3000).unref(); // словарь английской версии собираем заранее, а не на первом запросе
 app.use(langMiddleware()); // английская версия (/en/): язык запроса и перевод ответов — server/i18n/lang.js
-const auth = createAuth(process.env, { dataDir: config.dataDir });
+// Ключи /v1 для своих бота и мода (data/api-keys.json): выдаёт и отзывает владелец на странице «Аккаунт»
+const apiKeys = createKeyStore({ dataDir: config.dataDir });
+const auth = createAuth(process.env, { dataDir: config.dataDir, apiKeys });
 // Поиск и нейросети: обычные адреса открытых разделов (/guides/fishing, /item/HYPERION) с готовым текстом (server/seo)
 const guideDeps = { priceOf, priceInfo, itemName: id => itemName(id)?.replace(/§./g, ''), get constants() { return neu.constants; }, get items() { return neu.items; } };
 const seo = createSeo({
@@ -156,6 +165,46 @@ app.use(monitor.track5xx);
 const geo = createGeo({ dataDir: config.dataDir });
 geo.start();
 app.post('/api/t', express.text({ type: () => true, limit: '16kb' }), beaconHandler(monitor, { clientIp: req => auth.clientIp(req), isOwner: req => auth.isOwnerRequest(req), build: () => buildId(), country: ip => geo.country(ip) }));
+// Публичный API /v1 и страница Swagger (/api/docs) — до входа: им не нужны cookie сайта, данные игроков — только по ключу
+mountDocs(app);
+const corePkg = (() => { try { return createRequire(import.meta.url)('@sky-guide/core/package.json'); } catch { return {}; } })();
+const playerView = want => (players.isOwner(want) ? Promise.resolve({ owner: true, want, ...state }) : players.get(want));
+const v1Step = s => ({ id: s.id, cat: s.cat, priority: s.priority, effort: s.effort || null, title: s.title, why: s.why || '', how: s.how || [],
+  items: s.items || [], cost: s.cost ?? null, payoff: s.payoff || null, needsSaving: !!s.needsSaving, link: s.link || null });
+app.use('/v1', createV1({
+  keys: apiKeys, clientIp: req => auth.clientIp(req), open: () => auth.publicView, openPerMin: Number(process.env.V1_PER_MIN) || 120,
+  items: {
+    card: (id, o) => itemCard(id, o),
+    obtain: id => obtainGuide(id, { neu, prices, getCollections: () => moneyMod.craftCollections }),
+    search: (q, limit) => searchList(q, limit),
+  },
+  market: {
+    bazaar: q => (q.ids ? (items => ({ total: items.length, items }))(bazaarIds(q.ids)) : bazaarList(q)),
+    auctions: q => (q.ids ? (items => ({ total: items.length, items }))(ahIds(q.ids, true)) : ahQuery(q)),
+    candles: async (id, o) => { const c = await charts.candlesFor(id, o); return c.candles.length || c.live ? c : null; },
+    flips: (kind, q) => (kind === 'bazaar' ? bazaarFlips({ maxPrice: q.max, limit: q.limit })
+      : kind === 'craft' ? craftFlips({ limit: q.limit })
+        : kind === 'forge' ? moneyMod.forgeFlips({}).slice(0, q.limit)
+          : moneyMod.npcFlips({ mode: 'order' }).slice(0, q.limit)),
+  },
+  lexicon: () => ({ v: neu.loadedAt || 0, ready: neu.items.size > 0, phrases: lexiconPhrases(neu.items, neu.constants) }),
+  news: () => { const n = newsView(); return { latest: n.latest, entries: n.entries.map(e => ({ ...e, title: plainNews(e.title), items: e.items.map(plainNews) })) }; },
+  status: () => ({ ...status.publicStatus(), prices: { bazaarAt: prices.bazaarAt || null, auctionsAt: prices.binAt || null } }),
+  version: () => ({ build: buildId(), core: corePkg.version || null }),
+  players: {
+    view: playerView,
+    hidden: name => hiddenPlayers().has(String(name).toLowerCase()),
+  },
+  summary: v => summarizeForCompare(v),
+  plan: v => ({ player: { name: v.player?.name, uuid: v.player?.uuid || null }, profile: v.member?.profileName || null, updatedAt: v.updatedAt || 0,
+    steps: (v.analysis?.roadmap || []).filter(s => s.priority > 0).map(v1Step) }),
+  money: v => {
+    const extra = { networth: Number(v.analysis?.gear?.networth?.total) || 0 };
+    const methods = v.analysis?.methods || moneyMod.moneyMethods(v.member, extra);
+    return { player: { name: v.player?.name, uuid: v.player?.uuid || null }, profile: v.member?.profileName || null, updatedAt: v.updatedAt || 0,
+      plan: moneyMod.moneyPlan(v.member, extra, methods), methods };
+  },
+}));
 app.use(auth.router); // вход: ник + пароль сайта (data/users.json) — до всех страниц и /api; req.sbUser — кто вошёл
 // Лимит запросов с одного адреса (владельцу не мешает): картинки — отдельно, их на странице сотни
 const IMG_API = /^\/(img|texture|skin|head|icon)s?\//;
@@ -538,19 +587,20 @@ const bazaarRow = (id, p) => {
   return row;
 };
 // ?paged=1 — { total, items } по всем товарам Bazaar (поиск, sort=ключ:направление, offset, limit); без него — массив (старый формат)
+// Русский, транслит и жаргон («печенька», «рекомб», «зачарованный алмаз») — через базу items-ru
+const marketSearchIds = q => { try { return new Map(searchItems(q, { limit: 300, scores: true }).map((r, i) => [r.id, { at: i, score: r.score }])); } catch { return null; } };
+// Список Bazaar для /api/bazaar и /v1/bazaar: { total, items } (поиск, sort=ключ:направление, offset, limit, cat)
+const bazaarIds = ids => [...new Set(ids)].filter(id => prices.bazaar.has(id)).map(id => bazaarRow(id, prices.bazaar.get(id)));
+const bazaarList = q => listBazaar(prices.bazaar, {
+  q: q.q, sort: q.sort, offset: q.offset, limit: q.limit || 200, row: bazaarRow,
+  where: marketWhere(q), facets: { cat: r => r.cat },
+  searchIds: marketSearchIds,
+  keyOf: id => { try { return normalizeId(id); } catch { return id; } },
+});
 app.get('/api/bazaar', (req, res) => {
   // ?ids=A,B — конкретные товары (избранное), без фильтра по запросу и лимита
-  const ids = req.query.ids ? new Set(String(req.query.ids).split(',').filter(Boolean).slice(0, 200)) : null;
-  if (ids) {
-    return res.json([...ids].filter(id => prices.bazaar.has(id)).map(id => bazaarRow(id, prices.bazaar.get(id))));
-  }
-  const out = listBazaar(prices.bazaar, {
-    q: req.query.q, sort: req.query.sort, offset: req.query.offset, limit: req.query.limit || 200, row: bazaarRow,
-    where: marketWhere(req.query), facets: { cat: r => r.cat },
-    // Русский, транслит и жаргон («печенька», «рекомб», «зачарованный алмаз») — через базу items-ru
-    searchIds: q => { try { return new Map(searchItems(q, { limit: 300, scores: true }).map((r, i) => [r.id, { at: i, score: r.score }])); } catch { return null; } },
-    keyOf: id => { try { return normalizeId(id); } catch { return id; } },
-  });
+  if (req.query.ids) return res.json(bazaarIds(String(req.query.ids).split(',').filter(Boolean).slice(0, 200)));
+  const out = bazaarList(req.query);
   res.json(req.query.paged ? out : out.items);
 });
 // Аукцион на «Рынке»: список предметов AH (lowest BIN, продажи, изменение за сутки) и их варианты
@@ -559,19 +609,17 @@ const ahList = createAhList({
   isPet: id => /;\d$/.test(id) && /^\[Lvl/.test(neu.items.get(id)?.name || ''),
 });
 // ?q=&sort=&offset=&limit= — { total, items } по всем предметам аукциона; ?ids=A,B — конкретные (избранное, карточка)
+// &vars=1 — с вариантами (звёзды, Recomb, редкость питомца): для карточки выбранного предмета
+const ahIds = (ids, vars = false) => ids.map(k => { const r = ahList.row(k); return r && vars ? { ...r, variants: ahList.variants(k) } : r; }).filter(Boolean);
+const ahQuery = q => listBazaar(ahList.rows(), {
+  q: q.q, sort: q.sort, offset: q.offset, limit: q.limit || 200, row: (id, r) => r, sorts: AH_SORTS,
+  where: marketWhere(q), facets: { cat: r => r.cat, rarity: r => r.rarity },
+  searchIds: marketSearchIds,
+  keyOf: id => { try { return normalizeId(id.split(';')[0]); } catch { return id; } },
+});
 app.get('/api/market/ah', (req, res) => {
-  if (req.query.ids) {
-    const ids = String(req.query.ids).split(',').filter(Boolean).slice(0, 200);
-    // &vars=1 — с вариантами (звёзды, Recomb, редкость питомца): для карточки выбранного предмета
-    return res.json(ids.map(k => { const r = ahList.row(k); return r && req.query.vars ? { ...r, variants: ahList.variants(k) } : r; }).filter(Boolean));
-  }
-  const rows = ahList.rows();
-  res.json(listBazaar(rows, {
-    q: req.query.q, sort: req.query.sort, offset: req.query.offset, limit: req.query.limit || 200, row: (id, r) => r, sorts: AH_SORTS,
-    where: marketWhere(req.query), facets: { cat: r => r.cat, rarity: r => r.rarity },
-    searchIds: q => { try { return new Map(searchItems(q, { limit: 300, scores: true }).map((r, i) => [r.id, { at: i, score: r.score }])); } catch { return null; } },
-    keyOf: id => { try { return normalizeId(id.split(';')[0]); } catch { return id; } },
-  }));
+  if (req.query.ids) return res.json(ahIds(String(req.query.ids).split(',').filter(Boolean).slice(0, 200), !!req.query.vars));
+  res.json(ahQuery(req.query));
 });
 // Биржевые графики «Рынка»: свечи Bazaar копятся на диске (data/market), аукциона — data/market-ah; API /api/market/candles/:id
 const charts = createCharts({
@@ -632,13 +680,14 @@ app.get('/api/flips', (req, res) => res.json(bazaarFlips({ maxPrice: Number(req.
 app.get('/api/crafts', (req, res) => res.json(craftFlips()));
 app.get('/api/crops', (req, res) => res.json(cropProfits(Number(req.query.fortune || 1500))));
 
+// Поиск предметов: понимает русский, транслит и жаргон («гиперион», «терма», «аоте»)
+// close — только похожее по звучанию («Refraction» → книги Reflection): поиск в шапке тогда ставит ник игрока выше
+const searchList = (q, limit) => searchItems(q, { limit, scores: true })
+  .map(r => ({ id: r.id, name: r.nameEn, nameRu: r.nameRu, rarity: r.rarity, type: r.typeRu || r.type, category: r.categoryRu, price: priceOf(r.id), ...(r.score < 60 ? { close: true } : {}) }));
 app.get('/api/search', (req, res) => {
   const q = String(req.query.q || '').trim();
   if (q.length < 2) return res.json([]);
-  // Понимает русский, транслит и жаргон («гиперион», «терма», «аоте»)
-  const found = searchItems(q, { limit: Math.max(1, Math.min(500, Number(req.query.limit) || 60)), scores: true });
-  // close — только похожее по звучанию («Refraction» → книги Reflection): поиск в шапке тогда ставит ник игрока выше
-  res.json(found.map(r => ({ id: r.id, name: r.nameEn, nameRu: r.nameRu, rarity: r.rarity, type: r.typeRu || r.type, category: r.categoryRu, price: priceOf(r.id), ...(r.score < 60 ? { close: true } : {}) })));
+  res.json(searchList(q, Math.max(1, Math.min(500, Number(req.query.limit) || 60))));
 });
 
 let usageIndex = null;
@@ -675,14 +724,15 @@ app.get('/api/quotes', (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json(Object.fromEntries(ids.map(id => [id, quoteOf(id)])));
 });
-app.get('/api/item/:id', async (req, res) => {
-  const book = bookIds(req.params.id);
-  const it = (await getItem(req.params.id)) || (book && await getItem(book.neuId)) || (/:\d+$/.test(req.params.id) && await getItem(neuIdOf(req.params.id)));
+// Карточка предмета: для /api/item/:id и /v1/items/{id}. null — нет ни в базе NEU, ни на рынке
+async function itemCard(id, { lvl: wantLvl } = {}) {
+  const book = bookIds(id);
+  const it = (await getItem(id)) || (book && await getItem(book.neuId)) || (/:\d+$/.test(id) && await getItem(neuIdOf(id)));
   if (!it) {
     // Нет в базе NEU, но торгуется — отдаём хотя бы цены
-    const pi = priceInfo(req.params.id);
-    if (pi?.bazaar || pi?.bin) return res.json({ id: req.params.id, name: itemName(req.params.id) || req.params.id, lore: [], loreRu: [], prices: pi, npc: npcPrices.get(req.params.id) || null, usedIn: [], names: {} });
-    return res.status(404).json({ error: 'Предмет не найден' });
+    const pi = priceInfo(id);
+    if (pi?.bazaar || pi?.bin) return { id, name: itemName(id) || id, lore: [], loreRu: [], prices: pi, npc: npcPrices.get(id) || null, usedIn: [], names: {} };
+    return null;
   }
   // Цены Bazaar лежат под id рынка: «INK_SACK-3» из NEU → «INK_SACK:3»
   const priceId = book?.priceId || (/-\d+$/.test(it.id) && prices.bazaar.has(it.id.replace(/-(\d+)$/, ':$1')) ? it.id.replace(/-(\d+)$/, ':$1') : it.id);
@@ -697,9 +747,9 @@ app.get('/api/item/:id', async (req, res) => {
     for (const d of r.drops || []) if (d.id) ingIds.add(String(d.id).split(':')[0]);
   }
   // Питомцы: числа из petnums вместо {STRENGTH}/{0}/{LVL} (по умолчанию для 100 уровня, ?lvl=N — для своего)
-  const lvl = Math.max(1, Math.min(200, Number(req.query.lvl) || 100));
+  const lvl = Math.max(1, Math.min(200, Number(wantLvl) || 100));
   const filled = fillPetLore(it.id, it.name, it.lore || [], neu.constants?.petnums, lvl);
-  res.json({
+  return {
     id: it.id, name: bookName || filled.name, rarity: it.rarity, rarityRu: rarityRu(it.rarity), type: it.type,
     lore: filled.lore, loreRu: translateLore(filled.lore).lines,
     recipe: it.recipe, recipes: it.recipes, info: it.info, crafttext: it.crafttext,
@@ -712,7 +762,12 @@ app.get('/api/item/:id', async (req, res) => {
     props: itemProps(it.id, { bazaar: prices.bazaar.has(priceId) }),
     obtainment: obtainmentOf(it.id, x => itemName(x)?.replace(/§./g, '')),
     ru: withObtainment(patchReqLabels(getItemRu(it.id, { prices }), it.crafttext, fixCrafttext(it.crafttext, String(it.name || '').replace(/§./g, ''), moneyMod.craftCollections)), obtainmentOf(it.id, x => itemName(x)?.replace(/§./g, ''))),
-  });
+  };
+}
+app.get('/api/item/:id', async (req, res) => {
+  const card = await itemCard(req.params.id, { lvl: req.query.lvl });
+  if (!card) return res.status(404).json({ error: 'Предмет не найден' });
+  res.json(card);
 });
 
 // «Способ получения не указан в базе NEU» — если у Hypixel есть строка «откуда», подставляем её
@@ -849,7 +904,7 @@ async function main() {
   { const tryBlocked = () => resolveBoardBlocked().then(ok => { if (!ok) setTimeout(tryBlocked, 10 * 60_000).unref?.(); }); tryBlocked(); }
   // Вики: раз в сутки проверить, не правили ли страницы, по которым сверены гайды (один лёгкий запрос к API fandom)
   if (process.env.WIKI_WATCH !== '0') setTimeout(() => loop(refreshWiki, 24 * 3600_000, 'вики'), 2 * 60_000); // выборы: голоса меняются, мэр сменяется раз в ~5 суток
-  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { keyUsage.flush(); saveHistory(true); charts.closeSync(); board.flush(); monitor.flush(); process.exit(0); });
+  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { keyUsage.flush(); try { apiKeys.flush(); } catch { /* не записали счётчики ключей — не страшно */ } saveHistory(true); charts.closeSync(); board.flush(); monitor.flush(); process.exit(0); });
   monitor.start(); // тревоги раз в минуту и сводка на почту в 9 утра
   // Через 4 минуты (когда есть Bazaar и первый скан аукциона) — дозаполнить прошлую неделю истории с Coflnet, потом раз в сутки
   const fill = () => backfillHistory(prices, { onSave: () => saveHistory(true) }).catch(e => console.warn('[история цен]', e.message));
