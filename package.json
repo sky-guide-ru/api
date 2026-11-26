@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.12.0",
-    "@sky-guide/core": "github:sky-guide-ru/core#4ded4aa63c9763b373c1f206ef7667b1a20a3737",
+    "@sky-guide/core": "github:sky-guide-ru/core#27fbe6cc5216edc60df02551617089244bf0eb3b",
     "dotenv": "^18.0.10",
     "express": "^5.3.0",
     "mmdb-lib": "^3.0.5",
