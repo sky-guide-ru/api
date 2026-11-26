@@ -1,0 +1,837 @@
+openapi: 3.1.0
+info:
+  title: Sky Guide API
+  version: 1.0.0
+  summary: Предметы, рынок и расчёты по Hypixel SkyBlock на русском и английском
+  description: |
+    Открытый API сайта [sky-guide.ru](https://sky-guide.ru). Все ответы — расчёты и переводы Sky Guide,
+    а не пересказ ответа Hypixel.
+
+    **Без ключа** открыты предметы, поиск, Bazaar, аукцион, свечи, флипы, словарь терминов, новости и статус.
+    Лимит — 120 запросов в минуту с одного адреса.
+
+    **Данные игроков** (`/v1/players/...`) — только по ключу в заголовке `X-API-Key`, для своих клиентов
+    Sky Guide (бот, мод). Так требуют правила Hypixel: нельзя раздавать их данные сторонним разработчикам.
+    Ключи выдаёт владелец сайта, у каждого ключа свой лимит в минуту.
+
+    **Язык.** По умолчанию русский; английский — `?lang=en` или заголовок `X-Lang: en`.
+    Игровые названия (предметы, скиллы, острова) в обоих языках английские, как в игре.
+
+    **Ошибки** приходят в одном виде: `{ "error": "текст", "code": "КОД" }`.
+    Ломающие изменения — только в `/v2`; `/v1` после этого живёт с пометкой deprecated.
+  license:
+    name: AGPL-3.0-only
+    url: https://www.gnu.org/licenses/agpl-3.0.html
+  contact:
+    name: Sky Guide
+    url: https://github.com/sky-guide-ru/api
+servers:
+  - url: https://sky-guide.ru
+    description: sky-guide.ru
+  - url: /
+    description: этот сервер
+tags:
+  - name: Предметы
+  - name: Рынок
+  - name: Справка
+  - name: Игроки
+    description: Только по ключу `X-API-Key`.
+
+paths:
+  /v1/version:
+    get:
+      tags: [Справка]
+      operationId: getVersion
+      summary: Версия API и сборки
+      responses:
+        '200':
+          description: Версии
+          headers: { X-RateLimit-Limit: { $ref: '#/components/headers/RateLimit' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Version' }
+        '429': { $ref: '#/components/responses/Rate' }
+
+  /v1/status:
+    get:
+      tags: [Справка]
+      operationId: getStatus
+      summary: Нагрузка сервера и свежесть цен
+      responses:
+        '200':
+          description: Статус
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Status' }
+        '429': { $ref: '#/components/responses/Rate' }
+
+  /v1/items/{id}:
+    get:
+      tags: [Предметы]
+      operationId: getItem
+      summary: Карточка предмета
+      description: |
+        Описание (как в игре и в переводе), рецепты, цены Bazaar и аукциона, цена у NPC, где используется,
+        свойства и русская справка (`ru`). Понимает id книг с Bazaar (`ENCHANTMENT_SHARPNESS_7`) и NEU (`SHARPNESS;7`).
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+        - name: lvl
+          in: query
+          description: Уровень питомца для чисел в описании (1–200, по умолчанию 100)
+          schema: { type: integer, minimum: 1, maximum: 200, default: 100 }
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Карточка
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ItemCard' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+
+  /v1/items/{id}/obtain:
+    get:
+      tags: [Предметы]
+      operationId: getItemObtain
+      summary: Как получить предмет
+      description: Способы получения по шагам — NPC, крафт с деревом ингредиентов и ценами, Forge, Kat, дропы — и ссылка на вики.
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Способы получения
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ObtainGuide' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+
+  /v1/search:
+    get:
+      tags: [Предметы]
+      operationId: searchItems
+      summary: Поиск предметов
+      description: Понимает английские и русские названия, транслит и жаргон («гиперион», «терма», «аоте»).
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Запрос, от 2 символов
+          schema: { type: string, minLength: 2, maxLength: 80 }
+          example: гиперион
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Найденные предметы, самые похожие первыми
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [query, items]
+                properties:
+                  query: { type: string }
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/SearchHit' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/Rate' }
+
+  /v1/bazaar:
+    get:
+      tags: [Рынок]
+      operationId: listBazaar
+      summary: Товары Bazaar
+      description: Все товары Bazaar с ценами, оборотом за неделю и изменением за сутки. Поиск, фильтр по категории, сортировка, страницы.
+      parameters:
+        - $ref: '#/components/parameters/ListQuery'
+        - name: sort
+          in: query
+          description: 'Сортировка `ключ:направление` (1 — по возрастанию, -1 — по убыванию). Ключи: vol, d1, buy, spreadPct, buyWeek, name'
+          schema: { type: string, example: 'buy:-1' }
+        - $ref: '#/components/parameters/Category'
+        - $ref: '#/components/parameters/Ids'
+        - $ref: '#/components/parameters/Offset'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Страница списка
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [total, items]
+                properties:
+                  total: { type: integer, description: Сколько всего найдено (без offset/limit) }
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/BazaarRow' }
+                  facets: { $ref: '#/components/schemas/Facets' }
+        '429': { $ref: '#/components/responses/Rate' }
+
+  /v1/auctions:
+    get:
+      tags: [Рынок]
+      operationId: listAuctions
+      summary: Предметы аукциона
+      description: Lowest BIN, продажи за сутки и неделю, медиана продаж и изменение за сутки. С `ids` — ещё и варианты (звёзды, Recomb, редкость питомца).
+      parameters:
+        - $ref: '#/components/parameters/ListQuery'
+        - name: sort
+          in: query
+          description: 'Сортировка `ключ:направление`, как у /v1/bazaar'
+          schema: { type: string }
+        - $ref: '#/components/parameters/Category'
+        - name: rarity
+          in: query
+          description: Только эта редкость
+          schema: { type: string, example: LEGENDARY }
+        - $ref: '#/components/parameters/Ids'
+        - $ref: '#/components/parameters/Offset'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Страница списка
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [total, items]
+                properties:
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/AuctionRow' }
+                  facets: { $ref: '#/components/schemas/Facets' }
+        '429': { $ref: '#/components/responses/Rate' }
+
+  /v1/market/candles/{id}:
+    get:
+      tags: [Рынок]
+      operationId: getCandles
+      summary: Свечи цены
+      description: История цены свечами (OHLC и объём). Bazaar — с 1 минуты, аукцион — с 5 минут. Свечи 5м/1ч хранятся 30 дней, дневные дольше.
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+        - name: market
+          in: query
+          schema: { type: string, enum: [bazaar, ah], default: bazaar }
+        - name: tf
+          in: query
+          description: Размер свечи
+          schema: { type: string, enum: [1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w, 1M], default: 1h }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 10, maximum: 3000, default: 500 }
+        - name: to
+          in: query
+          description: Свечи до этого времени (мс с 1970), для подгрузки истории
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Свечи, старые первыми
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Candles' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+
+  /v1/flips/{kind}:
+    get:
+      tags: [Рынок]
+      operationId: getFlips
+      summary: Флипы
+      description: |
+        Выгодные перепродажи по текущим ценам: `bazaar` — заказ на покупку и продажу на Bazaar,
+        `craft` — купить ингредиенты и скрафтить, `forge` — Forge в Dwarven Mines, `npc` — купить на Bazaar и продать NPC.
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema: { type: string, enum: [bazaar, craft, forge, npc] }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 40 }
+        - name: max
+          in: query
+          description: Только для bazaar — не дороже этой цены за штуку
+          schema: { type: number }
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Флипы, выгодные первыми
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [kind, items]
+                properties:
+                  kind: { type: string, enum: [bazaar, craft, forge, npc] }
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Flip' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+
+  /v1/refs/lexicon:
+    get:
+      tags: [Справка]
+      operationId: getLexicon
+      summary: Словарь игровых терминов
+      description: |
+        Фразы, которые сайт подсвечивает подсказками: предметы, книги чар, статы, скиллы, мэры, острова, Slayers, этажи, редкости.
+        Ключ — фраза, значение — `тип:id` (`i:` предмет, `t:` термин).
+      responses:
+        '200':
+          description: Словарь
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Lexicon' }
+        '429': { $ref: '#/components/responses/Rate' }
+
+  /v1/news:
+    get:
+      tags: [Справка]
+      operationId: getNews
+      summary: Новости сайта
+      parameters:
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Записи, свежие первыми
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/News' }
+        '429': { $ref: '#/components/responses/Rate' }
+
+  /v1/players/{name}/profiles:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerProfiles
+      summary: Профили SkyBlock игрока
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+      responses:
+        '200':
+          description: Профили
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlayerProfiles' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/players/{name}/profiles/{profile}/summary:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerSummary
+      summary: Сводка профиля
+      description: Скиллы, Slayers, Catacombs, networth, Magical Power, питомцы, снаряжение и первые шаги плана.
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Сводка
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Summary' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/players/{name}/profiles/{profile}/plan:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerPlan
+      summary: План «Что делать»
+      description: Шаги плана по важности — что улучшить, вкачать или купить дальше, зачем и как.
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: План
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Plan' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/players/{name}/profiles/{profile}/money:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerMoney
+      summary: Способы заработка
+      description: Способы заработка, доступные игроку, с доходом в час по текущим ценам и требованиями.
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Заработок
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Money' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+components:
+  securitySchemes:
+    ApiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Ключ вида `sg_xxxxxxxxxx_…`. Выдаёт владелец сайта для своих клиентов (бот, мод).
+
+  headers:
+    RateLimit:
+      description: Сколько запросов в минуту можно (с ключом — лимит ключа)
+      schema: { type: integer }
+
+  parameters:
+    ItemId:
+      name: id
+      in: path
+      required: true
+      description: SkyBlock ID предмета (как в NEU и на Bazaar)
+      schema: { type: string, pattern: '^[A-Za-z0-9_:;\-.]{1,80}$' }
+      example: HYPERION
+    Nick:
+      name: name
+      in: path
+      required: true
+      description: Ник Minecraft
+      schema: { type: string, pattern: '^[A-Za-z0-9_]{1,16}$' }
+    Profile:
+      name: profile
+      in: path
+      required: true
+      description: Название профиля (Apple, Banana…) или `selected` — тот, где игрок сейчас играет
+      schema: { type: string, maxLength: 40 }
+      example: selected
+    Lang:
+      name: lang
+      in: query
+      description: Язык ответа (или заголовок X-Lang)
+      schema: { type: string, enum: [ru, en], default: ru }
+    ListQuery:
+      name: q
+      in: query
+      description: Поиск по названию (английскому, русскому, жаргону) или id
+      schema: { type: string, maxLength: 80 }
+    Category:
+      name: cat
+      in: query
+      description: Только эта категория (ключи — в facets.cat ответа)
+      schema: { type: string, example: farming }
+    Ids:
+      name: ids
+      in: query
+      description: Конкретные товары через запятую (до 200) — без поиска и страниц
+      schema: { type: string, example: 'ENCHANTED_DIAMOND,BOOSTER_COOKIE' }
+    Offset:
+      name: offset
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+
+  responses:
+    BadRequest:
+      description: Неверный параметр
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    NotFound:
+      description: Не найдено (предмет, игрок, профиль) или игрок попросил не показывать профиль (HIDDEN)
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    NoKey:
+      description: Нужен ключ API
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    BadKey:
+      description: Неверный или отозванный ключ
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Rate:
+      description: Превышен лимит запросов; Retry-After — через сколько секунд можно снова
+      headers:
+        Retry-After: { schema: { type: integer } }
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Unavailable:
+      description: Профиль ещё загружается (LOADING) или Hypixel сейчас не отвечает (HYPIXEL_LIMIT, HYPIXEL_UNAVAILABLE) — повтори позже
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+  schemas:
+    Error:
+      type: object
+      required: [error, code]
+      properties:
+        error: { type: string, description: Понятный текст ошибки }
+        code:
+          type: string
+          enum: [BAD_ID, BAD_QUERY, BAD_NAME, NOT_FOUND, NO_PROFILE, HIDDEN, NO_KEY, BAD_KEY, REVOKED, RATE, METHOD, LOADING, HYPIXEL_LIMIT, HYPIXEL_UNAVAILABLE, INTERNAL]
+        profiles: { type: array, items: { type: string }, description: Для NO_PROFILE — какие профили есть }
+        retryAfter: { type: integer, description: Для LOADING — через сколько секунд повторить }
+
+    Version:
+      type: object
+      required: [api, build, core]
+      properties:
+        api: { type: string, example: 1.0.0 }
+        build: { type: string, description: Версия сборки сайта }
+        core: { type: [string, 'null'], description: Версия расчётов @sky-guide/core }
+
+    Status:
+      type: object
+      required: [ok, load, at, hypixel, prices]
+      properties:
+        ok: { type: boolean }
+        load: { type: string, enum: [low, medium, high] }
+        why: { type: string }
+        at: { type: integer, description: Время ответа, мс }
+        hypixel:
+          type: object
+          properties:
+            limitedUntil: { type: [integer, 'null'], description: До какого времени профили не обновляются из-за лимита Hypixel }
+            daily: { type: boolean }
+            keyBroken: { type: boolean }
+        prices:
+          type: object
+          properties:
+            bazaarAt: { type: [integer, 'null'], description: Когда обновились цены Bazaar, мс }
+            auctionsAt: { type: [integer, 'null'], description: Когда закончился последний скан аукциона, мс }
+
+    Rarity:
+      type: [string, 'null']
+      examples: [COMMON, UNCOMMON, RARE, EPIC, LEGENDARY, MYTHIC, DIVINE, SPECIAL, VERY_SPECIAL]
+
+    PriceInfo:
+      type: [object, 'null']
+      description: Цены Bazaar и аукциона (поля зависят от рынка)
+      additionalProperties: true
+
+    ItemCard:
+      type: object
+      required: [id, name]
+      additionalProperties: true
+      properties:
+        id: { type: string }
+        name: { type: string }
+        rarity: { $ref: '#/components/schemas/Rarity' }
+        rarityRu: { type: [string, 'null'] }
+        type: { type: [string, 'null'] }
+        lore: { type: array, items: { type: string }, description: Описание как в игре (с цветовыми кодами §) }
+        loreRu: { type: array, items: { type: string }, description: Описание в переводе (в английской версии — как в игре) }
+        recipe: { type: [object, 'null'], additionalProperties: true }
+        recipes: { type: [array, 'null'], items: { type: object, additionalProperties: true } }
+        names: { type: object, additionalProperties: { type: string }, description: Названия ингредиентов рецептов по id }
+        prices: { $ref: '#/components/schemas/PriceInfo' }
+        npc: { type: [number, 'null'], description: Цена продажи NPC }
+        priceId: { type: string, description: Id предмета на рынке }
+        usedIn:
+          type: array
+          items:
+            type: object
+            properties: { id: { type: string }, name: { type: string } }
+        props: { type: [object, 'null'], additionalProperties: true }
+        obtainment: { type: [string, 'null'] }
+        ru: { type: [object, 'null'], additionalProperties: true, description: Русская справка — описание, где взять, требования }
+
+    ObtainGuide:
+      type: object
+      required: [id, name, methods]
+      additionalProperties: true
+      properties:
+        id: { type: string }
+        name: { type: string }
+        wiki:
+          type: [object, 'null']
+          properties:
+            page: { type: [string, 'null'] }
+            search: { type: [string, 'null'] }
+        methods:
+          type: array
+          items:
+            type: object
+            required: [kind, title]
+            additionalProperties: true
+            properties:
+              kind: { type: string, examples: [npc, craft, forge, kat, drop, bazaar, ah] }
+              title: { type: string }
+              total: { type: [number, 'null'], description: Сколько стоит этим способом }
+              steps: { type: array, items: { type: object, additionalProperties: true } }
+
+    SearchHit:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string, description: Название как в игре }
+        nameRu: { type: [string, 'null'] }
+        rarity: { $ref: '#/components/schemas/Rarity' }
+        type: { type: [string, 'null'] }
+        category: { type: [string, 'null'] }
+        price: { type: number, description: Цена сейчас (0 — нет на рынке) }
+        close: { type: boolean, description: Только похоже по звучанию }
+
+    DayChange:
+      type: [object, 'null']
+      description: Изменение за сутки, %
+      properties:
+        buy: { type: [number, 'null'] }
+        sell: { type: [number, 'null'] }
+
+    BazaarRow:
+      type: object
+      required: [id, name, buy, sell]
+      additionalProperties: true
+      properties:
+        id: { type: string, description: Id на Bazaar }
+        neuId: { type: string, description: Id в базе предметов, если отличается (INK_SACK:3 → INK_SACK-3) }
+        name: { type: string }
+        nameEn: { type: [string, 'null'] }
+        buy: { type: number, description: Instant Buy — купить сразу }
+        sell: { type: number, description: Instant Sell — продать сразу }
+        spread: { type: number }
+        buyVol: { type: number }
+        sellVol: { type: number }
+        buyWeek: { type: number, description: Куплено за неделю }
+        sellWeek: { type: number, description: Продано за неделю }
+        buyOrders: { type: number }
+        sellOrders: { type: number }
+        d1: { $ref: '#/components/schemas/DayChange' }
+        cat: { type: [string, 'null'] }
+        similar: { type: boolean, description: Найдено только по похожему названию }
+
+    AuctionRow:
+      type: object
+      required: [id, name, price]
+      additionalProperties: true
+      properties:
+        id: { type: string, description: 'Ключ предмета; варианты — ID@звёзды[r][+sN], питомцы — ID;редкость' }
+        name: { type: string }
+        nameEn: { type: [string, 'null'] }
+        price: { type: number, description: Lowest BIN }
+        second: { type: number, description: Второй по цене лот }
+        count: { type: number, description: Лотов BIN сейчас }
+        sold24: { type: number }
+        sold7: { type: number }
+        median: { type: number, description: Медиана продаж }
+        last: { type: number }
+        lastAt: { type: number }
+        cat: { type: [string, 'null'] }
+        rarity: { $ref: '#/components/schemas/Rarity' }
+        d1: { type: [number, 'null', object] }
+        max: { type: number, description: Lowest BIN питомца 100 уровня }
+        variants:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              label: { type: string }
+              price: { type: number }
+              count: { type: number }
+              sold24: { type: number }
+              median: { type: number }
+
+    Facets:
+      type: object
+      description: Сколько найденного в каждой категории/редкости
+      additionalProperties:
+        type: object
+        additionalProperties: { type: integer }
+
+    Candles:
+      type: object
+      required: [id, name, tf, candles, hasMore]
+      additionalProperties: true
+      properties:
+        id: { type: string }
+        market: { type: string, enum: [ah] }
+        name: { type: string }
+        tf: { type: string }
+        candles:
+          type: array
+          description: Свеча — массив [время мс, open, high, low, close, объём, …]
+          items:
+            type: array
+            items: { type: [number, 'null'] }
+        hasMore: { type: boolean, description: Есть свечи раньше — запроси с to }
+        live: { type: [object, 'null'], additionalProperties: true, description: Цена прямо сейчас }
+        variants: { type: array, items: { type: object, additionalProperties: true } }
+        keep: { type: object, additionalProperties: { type: number }, description: Сколько хранится свечей этого размера, мс }
+
+    Flip:
+      type: object
+      additionalProperties: true
+      description: Флип; общие поля — id, name и прибыль. Остальное зависит от вида (ингредиенты, время Forge, NPC).
+      properties:
+        id: { type: string }
+        name: { type: string }
+
+    Lexicon:
+      type: object
+      required: [v, ready, phrases]
+      properties:
+        v: { type: number, description: Версия словаря (меняется с обновлением базы предметов) }
+        ready: { type: boolean, description: false — база предметов ещё грузится, словарь неполный }
+        phrases: { type: object, additionalProperties: { type: string } }
+
+    News:
+      type: object
+      required: [latest, entries]
+      properties:
+        latest: { type: [string, 'null'] }
+        entries:
+          type: array
+          items:
+            type: object
+            required: [id, date, kind, title, items]
+            properties:
+              id: { type: string }
+              date: { type: string, format: date }
+              kind: { type: string, enum: [new, better, fix] }
+              kindRu: { type: string }
+              title: { type: string }
+              items: { type: array, items: { type: string } }
+
+    PlayerRef:
+      type: object
+      required: [name]
+      properties:
+        name: { type: [string, 'null'] }
+        uuid: { type: [string, 'null'] }
+
+    PlayerProfiles:
+      type: object
+      required: [player, profiles]
+      properties:
+        player: { $ref: '#/components/schemas/PlayerRef' }
+        profiles:
+          type: array
+          items:
+            type: object
+            required: [id, name, selected, mode, members]
+            properties:
+              id: { type: string }
+              name: { type: string }
+              selected: { type: boolean, description: Игрок сейчас играет в этом профиле }
+              mode: { type: string, examples: [normal, ironman, island, bingo] }
+              members: { type: integer, description: Участников коопа }
+
+    Level:
+      type: object
+      additionalProperties: true
+      properties:
+        name: { type: [string, 'null'] }
+        level: { type: number }
+        maxLevel: { type: number }
+        progress: { type: number }
+        xp: { type: number }
+
+    Summary:
+      type: object
+      required: [player, profile, skills, slayers, dungeons]
+      additionalProperties: true
+      properties:
+        player: { $ref: '#/components/schemas/PlayerRef' }
+        profile: { type: [string, 'null'] }
+        profileId: { type: [string, 'null'] }
+        gameMode: { type: [string, 'null'] }
+        coop: { type: integer, description: Участников коопа }
+        updatedAt: { type: number }
+        sbLevel: { type: number }
+        networth: { type: [object, 'null'], additionalProperties: { type: number } }
+        purse: { type: number }
+        bank: { type: [number, 'null'] }
+        skillAverage: { type: number }
+        skills: { type: object, additionalProperties: { $ref: '#/components/schemas/Level' } }
+        slayers: { type: object, additionalProperties: { $ref: '#/components/schemas/Level' } }
+        dungeons: { type: object, additionalProperties: true }
+        accessories: { type: object, additionalProperties: true }
+        mining: { type: object, additionalProperties: true }
+        garden: { type: object, additionalProperties: true }
+        pets: { type: object, additionalProperties: true }
+        gear: { type: object, additionalProperties: true }
+        next:
+          type: array
+          description: Первые шаги плана
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              title: { type: string }
+              cat: { type: string }
+
+    Step:
+      type: object
+      required: [id, cat, priority, title, why, how]
+      properties:
+        id: { type: string, description: Стабильный id шага }
+        cat: { type: string, description: Раздел (Dungeons, Аксессуары, Заработок…) }
+        priority: { type: number, minimum: 0, maximum: 100, description: Важность, больше — важнее }
+        effort: { type: [string, 'null'], description: Сколько времени займёт }
+        title: { type: string }
+        why: { type: string, description: Зачем и что даст }
+        how: { type: array, items: { type: string }, description: Как сделать и где взять }
+        items: { type: array, items: { type: string }, description: SkyBlock ID нужных предметов }
+        cost: { type: [number, 'null'], description: Оценка затрат в монетах }
+        payoff: { type: [string, 'null'] }
+        needsSaving: { type: boolean, description: Не хватает монет, нужно накопить }
+        link: { type: [string, 'null'], description: Раздел сайта }
+
+    Plan:
+      type: object
+      required: [player, profile, updatedAt, steps]
+      properties:
+        player: { $ref: '#/components/schemas/PlayerRef' }
+        profile: { type: [string, 'null'] }
+        updatedAt: { type: number }
+        steps: { type: array, items: { $ref: '#/components/schemas/Step' } }
+
+    Money:
+      type: object
+      required: [player, profile, updatedAt, methods]
+      properties:
+        player: { $ref: '#/components/schemas/PlayerRef' }
+        profile: { type: [string, 'null'] }
+        updatedAt: { type: number }
+        plan: { description: Что делать ради денег по порядку, additionalProperties: true }
+        methods:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            properties:
+              id: { type: string }
+              title: { type: string }

@@ -5,6 +5,7 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
 COPY src ./src
+COPY openapi.yaml ./
 RUN mkdir -p data packs db/icons web && chown node:node data
 USER node
 EXPOSE 3000
