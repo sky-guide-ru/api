@@ -10,6 +10,7 @@
 // Привязка Discord → ник (data/discord-links.json) — из модуля привязки; без неё /profile просит ник.
 import express from 'express';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { makeVerifier } from './verify.js';
 import { COMMANDS, commandsHash } from './commands.js';
 import { langOf, T, profileMessage, planMessage, priceMessage, errorText } from './render.js';
@@ -154,6 +155,9 @@ export function createDiscordBot(o) {
 
   /** express-обработчик POST /discord/interactions (тело — сырые байты: подпись считается по ним) */
   const router = express.Router();
+  // Значок для подвала карточек: Discord не показывает SVG, поэтому отдельный PNG
+  const logo = new URL('./logo.png', import.meta.url);
+  router.get('/discord/logo.png', (req, res) => res.set('Cache-Control', 'public, max-age=86400').type('image/png').sendFile(fileURLToPath(logo)));
   router.post('/discord/interactions', express.raw({ type: () => true, limit: '64kb' }), (req, res) => {
     if (!enabled) return res.status(404).json({ error: 'Бот не настроен' });
     const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
