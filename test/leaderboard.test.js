@@ -14,6 +14,7 @@ const view = (name, uuid, o = {}) => ({
     dungeons: { catacombs: { level: o.cata ?? 20, xp: o.cataXp ?? 100000 }, selectedClass: 'mage' },
     slayers: { zombie: { level: 5, xp: o.slayer ?? 10000 }, wolf: { level: 3, xp: 1000 } },
     inv: o.apiOff ? { apiDisabled: true } : {},
+    guild: o.guild || null,
   },
   analysis: { gear: { networth: { total: o.nw ?? 1e6 } } },
 });
@@ -27,6 +28,15 @@ test('сводка профиля: числа для таблиц, без отк
   assert.equal(e.slayerXp, 11000);
   assert.equal(e.cata, 20);
   assert.equal(entryFromView(view('Steve', 'aaa', { apiOff: true })).nw, null);
+});
+
+test('рейтинг: тег гильдии у ника, без названия и участников', () => {
+  const b = make();
+  b.record(view('Steve', 'aaa', { guild: { name: 'Skyblock Kings', tag: 'SBK', tagColor: 'DARK_AQUA', members: 98 } }));
+  b.record(view('Alex', 'bbb', { nw: 2 }));
+  const r = b.top('networth');
+  assert.deepEqual(r.rows.find(x => x.name === 'Steve').guild, { tag: 'SBK', color: 'DARK_AQUA' });
+  assert.equal(r.rows.find(x => x.name === 'Alex').guild, null);
 });
 
 test('рейтинг богатства: по убыванию, по одной строке на игрока (лучший профиль)', () => {

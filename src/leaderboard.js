@@ -49,6 +49,8 @@ export function entryFromView(v, now = Date.now()) {
     // Кооп-соседи по uuid — чтобы при выдаче убрать остров, на котором живёт кто-то из скрытых
     mates: (m.coopRoster || []).map(c => String(c.uuid || '').replace(/-/g, '').toLowerCase()).filter(id => id && id !== uuid),
     rank: m.rank || null,
+    // Тег гильдии — из того, что уже спросил профиль (кэш на час); рейтинг сам в Hypixel не ходит
+    guild: m.guild?.tag ? { tag: String(m.guild.tag).slice(0, 8), color: m.guild.tagColor || null } : null,
     // Без открытого API инвентаря стоимость занижена в разы — в таблицу «Богатство» такой профиль не ставим
     nw: !m.inv?.apiDisabled && nw > 0 ? Math.round(nw) : null,
     level: round1(m.sbLevel) || null,
@@ -191,7 +193,7 @@ export function createLeaderboard(o) {
       }
       const sorted = [...best.values()].sort((a, c) => b.value(c) - b.value(a) || (a.name > c.name ? 1 : -1));
       const row = (e, i) => ({
-        place: i + 1, name: e.name, uuid: e.uuid, profile: e.profile, mode: e.mode, coop: e.coop, rank: e.rank,
+        place: i + 1, name: e.name, uuid: e.uuid, profile: e.profile, mode: e.mode, coop: e.coop, rank: e.rank, guild: e.guild || null,
         value: b.value(e), nw: e.nw, level: e.level, cata: e.cata, cls: e.cls, slayerXp: e.slayerXp, slayers: e.slayers,
         skillAvg: e.skillAvg, at: e.at,
       });

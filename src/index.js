@@ -5,6 +5,7 @@ import { PARTS, statePart, partVersions, lightAnalysis, lightMember } from '@sky
 import { createStatus } from './status.js';
 import { keyedCallsRecent, keyedPause, keyUsage, resolveUuid } from '@sky-guide/core/hypixel.js';
 import { rankFor } from '@sky-guide/core/rank.js';
+import { guildFor } from '@sky-guide/core/guild.js';
 import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -324,7 +325,7 @@ const board = createLeaderboard({ file: path.join(config.dataDir, 'leaderboard.j
 const recordOwner = () => { if (state.status === 'ok' && state.member && pricesReady()) board.record({ player: state.player, member: state.member, analysis: state.analysis, updatedAt: state.updatedAt }); };
 bus.on('profile', recordOwner); bus.on('prices', recordOwner);
 bus.on('profile', () => warmEnAnalysis()); bus.on('prices', () => warmEnAnalysis());
-const players = createPlayers({ owner: () => state, ownerName: () => config.player, maxViews: 60, diskCache: createDiskCache({ dir: path.join(config.dataDir, 'hypixel-cache') }), rankFor, historyFiles, keepHistory: name => !!auth.users.get(name), onUpdate: v => board.record(v) });
+const players = createPlayers({ owner: () => state, ownerName: () => config.player, maxViews: 60, diskCache: createDiskCache({ dir: path.join(config.dataDir, 'hypixel-cache') }), rankFor, guildFor, historyFiles, keepHistory: name => !!auth.users.get(name), onUpdate: v => board.record(v) });
 auth.setProfileLookup(name => players.profileNames(name)); // проверка профиля друга на /account
 // Гость без входа может открыть не больше 30 разных ников за 10 минут с одного IP — чтобы перебор ников не съел лимит Hypixel
 const guestLimiter = createGuestLimiter({ max: Number(process.env.GUEST_PLAYERS_PER_10MIN) || 30 });
