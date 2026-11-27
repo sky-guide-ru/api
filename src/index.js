@@ -5,6 +5,7 @@ import { PARTS, statePart, partVersions, lightAnalysis, lightMember } from '@sky
 import { createStatus } from './status.js';
 import { keyedCallsRecent, keyedPause, keyUsage, resolveUuid } from '@sky-guide/core/hypixel.js';
 import { rankFor } from '@sky-guide/core/rank.js';
+import { bingoRawFor, statusFor, skyblockNews } from '@sky-guide/core/live.js';
 import { guildFor } from '@sky-guide/core/guild.js';
 import express from 'express';
 import path from 'node:path';
@@ -62,7 +63,7 @@ import { setCollectionsResource as setCollectionsPage, analyzeCollections } from
 import { mountCollectionRoutes, collectionsView } from './mount/collections.js';
 import { mountMinionRoutes, minionsView } from './mount/minions.js';
 import { collectOwned } from '@sky-guide/core/advisor/lib/util.js';
-import { calendarBrief } from '@sky-guide/core/calendar/index.js';
+import { calendarBrief, bingoEvent } from '@sky-guide/core/calendar/index.js';
 import { mountCalendarRoutes, createCalendar } from './mount/calendar.js';
 import { mountNewsRoutes } from './mount/news.js';
 import { createSurveyStore, mountSurveyRoutes } from './survey/index.js';
@@ -329,7 +330,7 @@ const board = createLeaderboard({ file: path.join(config.dataDir, 'leaderboard.j
 const recordOwner = () => { if (state.status === 'ok' && state.member && pricesReady()) board.record({ player: state.player, member: state.member, analysis: state.analysis, updatedAt: state.updatedAt }); };
 bus.on('profile', recordOwner); bus.on('prices', recordOwner);
 bus.on('profile', () => warmEnAnalysis()); bus.on('prices', () => warmEnAnalysis());
-const players = createPlayers({ owner: () => state, ownerName: () => config.player, maxViews: 60, diskCache: createDiskCache({ dir: path.join(config.dataDir, 'hypixel-cache') }), rankFor, guildFor: guildForBoard, historyFiles, keepHistory: name => !!auth.users.get(name), onUpdate: v => board.record(v) });
+const players = createPlayers({ owner: () => state, ownerName: () => config.player, maxViews: 60, diskCache: createDiskCache({ dir: path.join(config.dataDir, 'hypixel-cache') }), rankFor, guildFor: guildForBoard, bingoFor: bingoRawFor, bingoEvent, statusFor, historyFiles, keepHistory: name => !!auth.users.get(name), onUpdate: v => board.record(v) });
 auth.setProfileLookup(name => players.profileNames(name)); // проверка профиля друга на /account
 // Гость без входа может открыть не больше 30 разных ников за 10 минут с одного IP — чтобы перебор ников не съел лимит Hypixel
 const guestLimiter = createGuestLimiter({ max: Number(process.env.GUEST_PLAYERS_PER_10MIN) || 30 });
@@ -712,7 +713,7 @@ mountCollectRoutes(app, { getUuid: async req => (await req.sbView()).member?.uui
 // Скрытые шаги плана: у вошедшего владельца профиля хранятся на сервере (видны на всех его устройствах)
 mountHiddenRoutes(app, { getView: req => req.sbView(), isGuest: req => !!req.sbGuest });
 // Чек-лист улучшений своих экземпляров предмета: /api/item/:id/upgrades (для выбранного игрока — своего или друга)
-mountNewsRoutes(app, { // «Новости»: журнал изменений сайта, GET /api/news (записи — server/news/entries.js)
+mountNewsRoutes(app, { skyblockNews, // «Новости»: журнал изменений сайта, GET /api/news (записи — server/news/entries.js)
   textRefs: text => enrichGuide({ status: 'ok', sections: [{ kind: 'text', text }] }, { items: neu.items, constants: neu.constants, price: priceOf }).refs,
 });
 mountCalendarRoutes(app, { calendar }); // мэр, выборы и календарь событий: GET /api/calendar
