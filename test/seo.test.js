@@ -76,6 +76,12 @@ test('страница с готовым текстом: заголовок, can
   const ld = JSON.parse(/<script type="application\/ld\+json">(.+?)<\/script>/.exec(html)[1]);
   assert.equal(ld['@graph'][0]['@type'], 'Article');
   assert.equal(ld['@graph'][0].url, `${O}/guides/kuudra`);
+  // og.png рядом с index.html → адрес с ?v= по содержимому (Discord кэширует превью по адресу)
+  fs.writeFileSync(path.join(dir, 'og.png'), 'a');
+  const v1 = /og\.png\?v=([0-9a-f]{8})"/.exec(renderIndexHtml(f, {}, { origin: O }))?.[1];
+  fs.writeFileSync(path.join(dir, 'og.png'), 'bb');
+  const v2 = /og\.png\?v=([0-9a-f]{8})"/.exec(renderIndexHtml(f, {}, { origin: O }))?.[1];
+  assert.ok(v1 && v2 && v1 !== v2, `${v1} ${v2}`);
   const prof = renderIndexHtml(f, {}, { seo: null, noindex: true, origin: O });
   assert.ok(prof.includes('<meta name="robots" content="noindex, follow" />') && !prof.includes('canonical'));
   const v = renderIndexHtml(f, { GOOGLE_SITE_VERIFICATION: 'abcDEF_123-x', BING_SITE_VERIFICATION: '0123456789ABCDEF' }, {});
