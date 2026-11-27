@@ -1,5 +1,5 @@
 // Адреса сервера для stash/index.js (расчёты — в @sky-guide/core)
-import { analyzeEssence, analyzeSackLadder, analyzeSacks } from '@sky-guide/core/stash/index.js';
+import { analyzeEssence, analyzeSackLadder, analyzeSacks, marketId } from '@sky-guide/core/stash/index.js';
 import { analyzeSell } from '@sky-guide/core/stash/sell.js';
 import { analyzeCraft } from '@sky-guide/core/stash/craft.js';
 import { getCart } from '@sky-guide/core/roadmap/cart.js';
@@ -24,7 +24,7 @@ export function createStash(deps) {
       const out = cached(v.member, 'sacks', d.pricesKey?.(), () => ({ ...analyzeSacks(v.member, d), ladder: analyzeSackLadder(v.member, { ...d, owned: d.owned?.(v.member) }) }));
       return { status: 'ok', ...out, player: v.player?.name || null, self: !!v.self };
     },
-    // «Что продать»: что лежит без дела и где выгоднее продать; без рынка (Ironman) — ещё «На что потратить» по рецептам плана
+    // «Что продать»: что лежит без дела и где выгоднее продать, и «На что потратить» по рецептам плана
     sell(v) {
       const d = deps();
       const m = v.member;
@@ -33,7 +33,9 @@ export function createStash(deps) {
       const out = cached(m, 'sell', `${d.pricesKey?.()}:${roadmap.length}:${cartIds.join(',')}`, () => {
         const o = { ...d, roadmap, cartIds };
         const r = analyzeSell(m, o);
-        return r.market ? r : { ...r, craft: analyzeCraft(m, o).items };
+        // С рынком крафт показываем, только если докупить недостающее дешевле готовой вещи
+        const buy = r.market && d.buy ? id => d.buy(marketId(id)) || d.buy(id) : null;
+        return { ...r, craft: analyzeCraft(m, buy ? { ...o, buy } : o).items };
       });
       return { status: 'ok', ...out, player: v.player?.name || null, self: !!v.self };
     },
