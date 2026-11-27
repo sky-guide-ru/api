@@ -286,7 +286,7 @@ const discordBot = createDiscordBot({
   translate: (x, lang) => inLang(lang, () => translateDeep(x)),
   search: (q, limit) => searchList(q, limit), quote: id => quoteOf(id),
   linkOf: id => discordLinks.linkOf(id), linkPage: true, // привязки со страницы /discord (discord-link.js)
-  allowNick: (user, nick) => players.isOwner({ player: nick }) || (botNickLimit.allow(`u:${user}`, nick) && botAllLimit.allow('all', nick)),
+  allowNick: (user, nick) => players.isOwner({ player: nick, profile: '' }) || (botNickLimit.allow(`u:${user}`, nick) && botAllLimit.allow('all', nick)),
   commandsFile: path.join(config.dataDir, 'discord-commands.json'),
 });
 app.use(discordBot.router);
