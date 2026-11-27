@@ -1762,6 +1762,7 @@ components:
             essence: { type: integer }
             museum: { type: integer }
             coins: { type: integer }
+            cosmetic: { type: integer, description: 'Сколько из total дают скины и краски (на предметах, в музее и у питомцев). Уже входит в total.' }
         purse: { type: integer }
         bank: { type: [integer, 'null'] }
         topItems:
