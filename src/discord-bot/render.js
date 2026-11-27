@@ -37,6 +37,8 @@ export const T = {
       unlinked: n => `Ник **${n}** отвязан, роль Verified снята.`,
       none: 'К твоему Discord не привязан ник.',
       off: 'Привязка ника сейчас не работает.',
+      modal: 'Верификация', label: 'Ник в Minecraft',
+      panelOk: 'Сообщение с кнопкой поставлено.', panelFail: s => `Не получилось поставить сообщение (${s}). Нужны права боту на этот канал: просмотр, отправка, встраивание ссылок.`,
     },
   },
   en: {
@@ -68,6 +70,8 @@ export const T = {
       unlinked: n => `**${n}** is unlinked, the Verified role is removed.`,
       none: 'No nickname is linked to your Discord.',
       off: 'Nickname linking is not available right now.',
+      modal: 'Verification', label: 'Minecraft nickname',
+      panelOk: 'The button message is posted.', panelFail: s => `Could not post the message (${s}). The bot needs View, Send Messages and Embed Links in this channel.`,
     },
   },
 };
@@ -192,6 +196,36 @@ export function priceMessage(item, q, { lang = 'ru', site } = {}) {
     components: linkRow([{ label: t.openItem, url: links.item(item.id), emoji: '🌐' }]),
     allowed_mentions: { parse: [] },
   };
+}
+
+/** Сообщение с кнопками в канале верификации: одно на оба языка (его читают все) */
+export function verifyPanel(site) {
+  return {
+    embeds: [{
+      title: '✅ Верификация · Verification', color: COLOR,
+      description: [
+        'Нажми **Верификация** и впиши ник Minecraft: бот сверит его с Discord в профиле Hypixel и откроет чаты.',
+        'Press **Verify** and enter your Minecraft nickname: the bot checks the Discord in your Hypixel profile and opens the chats.',
+        '',
+        '**Где указать Discord · Where to set it:** Hypixel → профиль / profile (голова в хотбаре / head in the hotbar) → Social Media → Discord.',
+      ].join('\n'),
+      footer: footer(site),
+    }],
+    components: [{ type: 1, components: [
+      { type: 2, style: 3, custom_id: VERIFY_ID, label: 'Верификация · Verify', emoji: { name: '✅' } },
+      { type: 2, style: 2, custom_id: UNLINK_ID, label: 'Отвязать · Unlink' },
+    ] }],
+    allowed_mentions: { parse: [] },
+  };
+}
+export const VERIFY_ID = 'sg:verify', UNLINK_ID = 'sg:unlink';
+
+/** Окно с полем для ника (ответ на кнопку «Верификация») */
+export function verifyModal(lang) {
+  const l = T[lang].link;
+  return { type: 9, data: { custom_id: VERIFY_ID, title: l.modal, components: [{ type: 1, components: [
+    { type: 4, custom_id: 'nick', style: 1, label: l.label, placeholder: 'Steve', min_length: 1, max_length: 16, required: true },
+  ] }] } };
 }
 
 /** Итог /link и /unlink (результаты link()/unlink() из discord-link.js) → текст */

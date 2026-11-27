@@ -13,17 +13,19 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { makeVerifier } from './verify.js';
 import { COMMANDS, commandsHash } from './commands.js';
-import { langOf, T, profileMessage, planMessage, priceMessage, errorText, linkText } from './render.js';
+import { langOf, T, profileMessage, planMessage, priceMessage, errorText, linkText, verifyPanel, verifyModal, VERIFY_ID, UNLINK_ID } from './render.js';
 
 const API = 'https://discord.com/api/v10';
 const EPHEMERAL = 64;
 const NICK = /^[A-Za-z0-9_]{1,16}$/;
 // Интеракции: 1 — проверка адреса, 2 — команда, 4 — подсказки при наборе. Ответы: 1 — pong, 4 — сообщение,
 // 5 — «думаю…» (потом правим сообщение), 8 — варианты подсказки
-const PING = 1, COMMAND = 2, AUTOCOMPLETE = 4;
+const PING = 1, COMMAND = 2, COMPONENT = 3, AUTOCOMPLETE = 4, MODAL = 5;
 
 const optionsOf = data => Object.fromEntries((data?.options || []).map(o => [o.name, o.value]));
 const userOf = body => body.member?.user || body.user || null;
+// Значение поля из окна: строки (type 1) и новые подписи (type 18) с полем внутри
+const modalValue = (data, id) => (data?.components || []).flatMap(r => r.components || (r.component ? [r.component] : [])).find(c => c.custom_id === id)?.value || '';
 
 /** Привязки из data/discord-links.json: { "<discord id>": { uuid, name, at } } — формат модуля привязки */
 export function fileLinks(file) {
@@ -135,6 +137,22 @@ export function createDiscordBot(o) {
     return { reply: { type: 5, data: { flags: EPHEMERAL } }, after: () => runLink(body, lang, name, nick) };
   }
 
+  /** Поставить сообщение с кнопками в канал; прошлое такое же сообщение бот удаляет (файл verifyFile) */
+  async function postPanel(body, lang) {
+    const l = T[lang].link, file = o.verifyFile, channel = String(body.channel_id || body.channel?.id || '');
+    if (!token || !/^\d{5,25}$/.test(channel)) return edit(body.token, { content: l.panelFail('no token') });
+    const auth = { 'Content-Type': 'application/json', Authorization: `Bot ${token}` };
+    const r = await doFetch(`${API}/channels/${channel}/messages`, { method: 'POST', headers: auth, body: JSON.stringify(verifyPanel(site())) });
+    if (!r.ok) return edit(body.token, { content: l.panelFail(r.status) });
+    let old = null;
+    try { old = file ? JSON.parse(fs.readFileSync(file, 'utf8')) : null; } catch { /* первое сообщение */ }
+    if (old?.channel && old?.message) await doFetch(`${API}/channels/${old.channel}/messages/${old.message}`, { method: 'DELETE', headers: auth }).catch(() => {});
+    let msg = null;
+    try { msg = await r.json(); } catch { /* без id старое сообщение не удалить в следующий раз — не страшно */ }
+    try { if (file && msg?.id) fs.writeFileSync(file, JSON.stringify({ channel, message: msg.id, at: Date.now() })); } catch { /* не страшно: старое удалим руками */ }
+    return edit(body.token, { content: l.panelOk });
+  }
+
   function price(opts, lang) {
     const q = String(opts.item || '').trim().slice(0, 80);
     const exact = /^[A-Z0-9_:;\-.]{2,80}$/.test(q) ? o.search(q, 5).find(r => r.id === q) : null; // из подсказки приходит id
@@ -161,12 +179,16 @@ export function createDiscordBot(o) {
     if (body?.type === PING) return { reply: { type: 1 } };
     const lang = langOf(body?.locale);
     if (body?.type === AUTOCOMPLETE) return { reply: autocomplete(body, lang) };
+    if (body?.type === COMPONENT && body.data?.custom_id === VERIFY_ID) return { reply: o.link ? verifyModal(lang) : { type: 4, data: { content: T[lang].link.off, flags: EPHEMERAL } } };
+    if (body?.type === COMPONENT && body.data?.custom_id === UNLINK_ID) return linkCommand(body, 'unlink', {}, lang);
+    if (body?.type === MODAL && body.data?.custom_id === VERIFY_ID) return linkCommand(body, 'link', { nick: modalValue(body.data, 'nick') }, lang);
     if (body?.type !== COMMAND) return { reply: { type: 4, data: { content: '?', flags: EPHEMERAL } } };
     const name = body.data?.name;
     const opts = optionsOf(body.data);
     const flags = opts.private ? EPHEMERAL : 0;
     if (name === 'price') return { reply: { type: 4, data: { ...price(opts, lang), flags } } };
     if (name === 'link' || name === 'unlink') return linkCommand(body, name, opts, lang);
+    if (name === 'verify-panel') return { reply: { type: 5, data: { flags: EPHEMERAL } }, after: () => postPanel(body, lang) };
     if (name === 'profile' || name === 'next') {
       const tg = target(body, opts, lang);
       if (tg.error) return { reply: { type: 4, data: { content: tg.error, flags: EPHEMERAL, allowed_mentions: { parse: [] } } } };

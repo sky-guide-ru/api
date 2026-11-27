@@ -31,6 +31,10 @@ export const COMMANDS = [
   { type: 1, contexts: [0], integration_types: [0], name: 'unlink', name_localizations: { ru: 'отвязать' },
     description: 'Unlink your Minecraft nickname from Discord',
     description_localizations: { ru: 'Отвязать ник Minecraft от Discord' } },
+  // Сообщение с кнопкой «Верификация» в текущий канал; видна только админам сервера (право Administrator)
+  { type: 1, contexts: [0], integration_types: [0], default_member_permissions: '8', name: 'verify-panel', name_localizations: { ru: 'панель-верификации' },
+    description: 'Post the verification button message in this channel',
+    description_localizations: { ru: 'Поставить в этот канал сообщение с кнопкой верификации' } },
 ];
 
 export const commandsHash = (list = COMMANDS) => crypto.createHash('sha256').update(JSON.stringify(list)).digest('hex').slice(0, 16);

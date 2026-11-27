@@ -291,7 +291,7 @@ const discordBot = createDiscordBot({
   // /link и /unlink в Discord — та же привязка, что на /discord; 5 попыток за 10 минут, чтобы не тратить лимит Hypixel
   ...(discordLinking.enabled ? { link: (u, n) => discordLinking.link(u, n), unlink: u => discordLinking.unlink(u), allowLink: id => botLinkLimit.hit(id) === 0 } : {}),
   allowNick: (user, nick) => players.isOwner({ player: nick, profile: '' }) || (botNickLimit.allow(`u:${user}`, nick) && botAllLimit.allow('all', nick)),
-  commandsFile: path.join(config.dataDir, 'discord-commands.json'),
+  commandsFile: path.join(config.dataDir, 'discord-commands.json'), verifyFile: path.join(config.dataDir, 'discord-verify.json'),
 });
 app.use(discordBot.router);
 app.use(auth.router); // вход: ник + пароль сайта (data/users.json) — до всех страниц и /api; req.sbUser — кто вошёл
