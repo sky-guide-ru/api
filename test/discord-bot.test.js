@@ -214,3 +214,33 @@ test('мелочи: язык, монеты, ошибки, экранирован
   assert.match(profileMessage({ ...SUMMARY, missingProfile: 'Kiwi' }, { site: SITE }).content, /«Kiwi» нет/);
   assert.equal(planMessage({ player: { name: 'S' }, steps: [] }, { site: SITE }).embeds[0].description, 'Главных шагов сейчас нет: профиль в отличной форме.');
 });
+
+test('/link и /unlink: личный ответ, проверка Discord в Hypixel, подсказка при несовпадении, лимит', async () => {
+  const calls = [];
+  let allowed = true;
+  const { bot, edits } = makeBot({
+    link: async (user, nick) => { calls.push(['link', user, nick]); return nick === 'Steve' ? { r: 'ok', nick: 'Steve', nickSet: true } : { r: 'mismatch', nick, set: 'other', you: user.username }; },
+    unlink: async user => { calls.push(['unlink', user.id]); return { r: 'unlinked', nick: 'Steve' }; },
+    allowLink: () => allowed,
+  });
+  const u = { member: { user: { id: '77', username: 'cat', discriminator: '0' } } };
+  const ok = bot.handle(cmd('link', [{ name: 'nick', value: 'Steve' }], u));
+  assert.equal(ok.reply.type, 5);
+  assert.equal(ok.reply.data.flags, 64);
+  await ok.after();
+  assert.deepEqual(calls[0], ['link', { id: '77', username: 'cat', discriminator: '0' }, 'Steve']);
+  assert.match(edits[0].body.content, /Steve\*\* привязан: выдана роль Verified, ник на сервере/);
+  const bad = bot.handle(cmd('link', [{ name: 'nick', value: 'Alex' }], { ...u, locale: 'en-US' }));
+  await bad.after();
+  assert.match(edits[1].body.content, /Discord “other”, but you are “cat”\.\nTo set it: .*Social Media → Discord/);
+  assert.match(bot.handle(cmd('link', [{ name: 'nick', value: 'кот' }], u)).reply.data.content, /латиница/);
+  allowed = false;
+  const limited = bot.handle(cmd('link', [{ name: 'nick', value: 'Steve' }], u));
+  assert.match(limited.reply.data.content, /Слишком много попыток/);
+  assert.equal(limited.after, undefined);
+  const un = bot.handle(cmd('unlink', [], u));
+  await un.after();
+  assert.match(edits[2].body.content, /отвязан, роль Verified снята/);
+  // без настроенной привязки — честный отказ
+  assert.match(makeBot().bot.handle(cmd('unlink', [], u)).reply.data.content, /не работает/);
+});

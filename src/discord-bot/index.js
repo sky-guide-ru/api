@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { makeVerifier } from './verify.js';
 import { COMMANDS, commandsHash } from './commands.js';
-import { langOf, T, profileMessage, planMessage, priceMessage, errorText } from './render.js';
+import { langOf, T, profileMessage, planMessage, priceMessage, errorText, linkText } from './render.js';
 
 const API = 'https://discord.com/api/v10';
 const EPHEMERAL = 64;
@@ -44,7 +44,8 @@ export function fileLinks(file) {
  *   view({ player, profile }) → вид игрока (как на сайте, кэш общий); hidden(name); open() — PUBLIC_VIEW;
  *   summary(v), plan(v) — те же расчёты, что /v1; translate(obj, lang) — перевод текстов core на английский;
  *   search(q, limit) → [{ id, name, nameRu }]; quote(id); linkOf(discordId) → { name } | null; linkPage — есть ли страница привязки;
- *   allowNick(userId, nick) → boolean — лимит разных ников (чтобы перебор не съел лимит Hypixel); commandsFile
+ *   allowNick(userId, nick) → boolean — лимит разных ников (чтобы перебор не съел лимит Hypixel); commandsFile;
+ *   link(user, nick), unlink(user) — привязка ника из discord-link.js (роль Verified); allowLink(userId) — лимит попыток
  */
 export function createDiscordBot(o) {
   const env = o.env || {};
@@ -111,6 +112,29 @@ export function createDiscordBot(o) {
     }
   }
 
+  /** /link и /unlink: проверка Discord в профиле Hypixel, роль и ник — тем же кодом, что страница /discord */
+  async function runLink(body, lang, name, nick) {
+    const u = userOf(body);
+    const user = { id: u.id, username: u.username, discriminator: u.discriminator };
+    let res;
+    try { res = name === 'link' ? await o.link(user, nick) : await o.unlink(user); } catch (e) {
+      console.warn(`[discord-бот] /${name}:`, e?.message || e);
+      res = { r: 'error' };
+    }
+    await edit(body.token, { content: linkText(res, lang), allowed_mentions: { parse: [] } });
+  }
+
+  function linkCommand(body, name, opts, lang) {
+    const l = T[lang].link;
+    const say = content => ({ reply: { type: 4, data: { content, flags: EPHEMERAL, allowed_mentions: { parse: [] } } } });
+    const id = userOf(body)?.id;
+    if (!o.link || !o.unlink || !id) return say(l.off);
+    const nick = String(opts.nick || '').trim().replace(/^@+/, '');
+    if (name === 'link' && !NICK.test(nick)) return say(T[lang].badName);
+    if (name === 'link' && o.allowLink && !o.allowLink(id)) return say(l.rate);
+    return { reply: { type: 5, data: { flags: EPHEMERAL } }, after: () => runLink(body, lang, name, nick) };
+  }
+
   function price(opts, lang) {
     const q = String(opts.item || '').trim().slice(0, 80);
     const exact = /^[A-Z0-9_:;\-.]{2,80}$/.test(q) ? o.search(q, 5).find(r => r.id === q) : null; // из подсказки приходит id
@@ -142,6 +166,7 @@ export function createDiscordBot(o) {
     const opts = optionsOf(body.data);
     const flags = opts.private ? EPHEMERAL : 0;
     if (name === 'price') return { reply: { type: 4, data: { ...price(opts, lang), flags } } };
+    if (name === 'link' || name === 'unlink') return linkCommand(body, name, opts, lang);
     if (name === 'profile' || name === 'next') {
       const tg = target(body, opts, lang);
       if (tg.error) return { reply: { type: 4, data: { content: tg.error, flags: EPHEMERAL, allowed_mentions: { parse: [] } } } };

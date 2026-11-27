@@ -23,6 +23,14 @@ export const COMMANDS = [
     description: 'What to do next: top steps of the Sky Guide plan',
     description_localizations: { ru: 'Что делать дальше: главные шаги плана Sky Guide' },
     options: [nick, profile] },
+  // Привязка ника: только на сервере Sky Guide (там выдаётся роль Verified)
+  { type: 1, contexts: [0], integration_types: [0], name: 'link', name_localizations: { ru: 'привязать' },
+    description: 'Link your Minecraft nickname: Verified role and server nickname',
+    description_localizations: { ru: 'Привязать ник Minecraft: роль Verified и ник на сервере' },
+    options: [{ ...nick, description: 'Your Minecraft nickname', description_localizations: { ru: 'Твой ник в Minecraft' }, required: true }] },
+  { type: 1, contexts: [0], integration_types: [0], name: 'unlink', name_localizations: { ru: 'отвязать' },
+    description: 'Unlink your Minecraft nickname from Discord',
+    description_localizations: { ru: 'Отвязать ник Minecraft от Discord' } },
 ];
 
 export const commandsHash = (list = COMMANDS) => crypto.createHash('sha256').update(JSON.stringify(list)).digest('hex').slice(0, 16);
