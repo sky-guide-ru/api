@@ -11,6 +11,8 @@
 //   DONATE_URL=https://boosty.to/...        кнопка «Поддержать» (Boosty, DonationAlerts, ЮMoney и т.п.)
 //   CONTACT_EMAIL=почта@домен.ru            почта для связи: ссылка «Написать на почту» в подвале сайта (и в /legal)
 import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
 
 const RTB = /^R-A-\d{4,12}-\d{1,6}$/;
 const DIGITS = /^\d{4,12}$/;
@@ -75,12 +77,28 @@ function headTags(env, o = {}) {
       `<link rel="alternate" hreflang="ru" href="${escAttr(origin + p)}" />`, `<link rel="alternate" hreflang="en" href="${escAttr(origin + en)}" />`,
       `<link rel="alternate" hreflang="x-default" href="${escAttr(origin + p)}" />`);
   }
-  if (origin) tags.push(`<meta property="og:image" content="${origin}/${o.lang === 'en' ? 'og-en.png' : 'og.png'}" />`, '<meta property="og:image:width" content="1200" />', '<meta property="og:image:height" content="630" />');
+  const og = o.lang === 'en' ? 'og-en.png' : 'og.png';
+  if (origin) tags.push(`<meta property="og:image" content="${origin}/${og}${ogVersion(o.dir, og)}" />`, '<meta property="og:image:width" content="1200" />', '<meta property="og:image:height" content="630" />');
   tags.push('<meta property="og:site_name" content="Sky Guide" />', '<meta name="twitter:card" content="summary_large_image" />');
   if (o.seo?.jsonld && o.jsonld && origin) tags.push(o.jsonld(o.seo.jsonld, origin));
   // Метрику и рекламу РСЯ сервер в страницу НЕ вставляет: их скрипты ставят cookie и передают Яндексу IP посетителя,
   // поэтому браузер подгружает их только после согласия в баннере cookie (client/src/ads.js, consent.js).
   return tags.join('\n    ');
+}
+
+// ?v=… по содержимому картинки превью: Discord, Telegram и ВК кэшируют превью по адресу,
+// поэтому новая og.png получает новый адрес сама, без ручного номера
+const ogCache = new Map();
+function ogVersion(dir, name) {
+  if (!dir) return '';
+  const file = path.join(dir, name);
+  let st;
+  try { st = fs.statSync(file); } catch { return ''; }
+  const hit = ogCache.get(file);
+  if (hit?.mtime === st.mtimeMs && hit.size === st.size) return hit.v;
+  const v = `?v=${crypto.createHash('sha1').update(fs.readFileSync(file)).digest('hex').slice(0, 8)}`;
+  ogCache.set(file, { mtime: st.mtimeMs, size: st.size, v });
+  return v;
 }
 
 const cache = { file: '', mtime: 0, html: '' };
@@ -100,7 +118,7 @@ export function renderIndexHtml(file, env = process.env, o = {}) {
       .replace(/<meta property="og:type" content="[^"]*"\s*\/?>/, () => `<meta property="og:type" content="${seo.ogType || 'website'}" />`);
     if (seo.body) html = html.replace('<div id="root"></div>', () => `<div id="root"><div class="seo-pre">${seo.body}</div></div>`);
   }
-  return html.replace('</head>', () => `    ${headTags(env, o)}\n  </head>`);
+  return html.replace('</head>', () => `    ${headTags(env, { ...o, dir: path.dirname(file) })}\n  </head>`);
 }
 
 // Поисковые роботы и роботы нейросетей, которым явно разрешён сайт (кроме /api и входа)
