@@ -13,6 +13,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { discordLinkConfig } from './discord-link.js';
 
 const RTB = /^R-A-\d{4,12}-\d{1,6}$/;
 const DIGITS = /^\d{4,12}$/;
@@ -38,6 +39,7 @@ export function publicConfig(env = process.env) {
     rtb: { bottom, landing },
     donateUrl: safeUrl(env.DONATE_URL),
     publicView: env.PUBLIC_VIEW !== '0',
+    discordLink: discordLinkConfig(env).enabled, // страница /discord с привязкой ника (иначе там просто ссылка на сервер)
     contactEmail: EMAIL.test(String(env.CONTACT_EMAIL || '').trim()) ? env.CONTACT_EMAIL.trim() : '',
   };
 }
