@@ -203,6 +203,7 @@
 
 - `GET /discord`
 - `GET /discord/callback`
+- `GET /discord/logo.png`
 - `GET /discord/start`
 - `GET /en/discord`
 

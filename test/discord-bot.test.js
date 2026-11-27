@@ -90,13 +90,17 @@ test('/profile: сначала «думаю», потом карточка с п
   assert.match(edits[0].url, /\/webhooks\/1234567890\/itok\/messages\/@original$/);
   const e = edits[0].body.embeds[0];
   assert.equal(e.title, 'Steve · Apple');
-  const f = Object.fromEntries(e.fields.map(x => [x.name, x.value]));
+  const f = Object.fromEntries(e.fields.map(x => [x.name.replace(/^\S+ /, ''), x.value]));
   assert.equal(f['SkyBlock Level'], '212');
   assert.equal(f.Networth, '1.25B');
-  assert.equal(f.Slayers, 'Revenant 9'); // нулевые не показываем
-  assert.equal(f['Питомец'], 'Golden Dragon (Legendary, 102)');
-  assert.match(f['Что делать дальше'], /1\. Купить Hyperion\n2\. Скрафтить Terminator/);
-  assert.equal(edits[0].body.components[0].components[0].url, `${SITE}/?player=Steve&profile=Apple#/overview`);
+  assert.equal(f.Slayers, '🧟 9'); // нулевые не показываем
+  assert.equal(f['Питомец'], '🟡 Golden Dragon · 102');
+  assert.match(f['Что делать дальше'], /`1` Купить Hyperion\n`2` Скрафтить Terminator/);
+  assert.equal(e.footer.icon_url, `${SITE}/discord/logo.png`);
+  assert.equal(e.thumbnail.url, `${SITE}/api/head/Steve?size=128`);
+  const btn = edits[0].body.components[0].components[0];
+  assert.equal(btn.url, `${SITE}/?player=Steve&profile=Apple#/overview`);
+  assert.deepEqual(btn.emoji, { name: '🌐' });
   assert.deepEqual(edits[0].body.allowed_mentions, { parse: [] });
 });
 
@@ -140,8 +144,8 @@ test('/next: личный ответ, шаги плана, английский 
   assert.equal(out.reply.data.flags, 64);
   await out.after();
   const e = edits[0].body.embeds[0];
-  assert.equal(e.title, 'What to do next · Steve');
-  assert.match(e.description, /\*\*1\. Buy Hyperion\*\*\nГлавный урон для Mage\nCost: ~900M/);
+  assert.equal(e.title, '🧭 What to do next · Steve');
+  assert.match(e.description, /\*\*1\. Buy Hyperion\*\*\nГлавный урон для Mage\n💰 ~900M/);
   assert.match(e.url, /^https:\/\/sky-guide\.ru\/en\/\?player=Steve&profile=Apple#\/roadmap$/);
 });
 
@@ -151,14 +155,14 @@ test('/price: сразу отвечает; Auction House и Bazaar; не най�
   assert.equal(ah.type, 4);
   const e = ah.data.embeds[0];
   assert.equal(e.title, 'Hyperion');
-  assert.match(e.description, /Гиперион · Auction House/);
+  assert.equal(e.description, '🔨 Auction House · Гиперион');
   assert.equal(e.url, `${SITE}/item/HYPERION`);
-  assert.ok(e.fields.some(f => f.name === 'Lowest BIN' && f.value === '525M'));
-  assert.ok(e.fields.some(f => f.value === '+1.2% за сутки · -3% за неделю'));
+  assert.ok(e.fields.some(f => f.name === '🏷️ Lowest BIN' && f.value === '525M'));
+  assert.ok(e.fields.some(f => f.value === '📈 +1.2% за сутки · 📉 -3% за неделю'));
   const bz = bot.handle(cmd('price', [{ name: 'item', value: 'ENCHANTED_DIAMOND' }, { name: 'private', value: true }], { locale: 'en-GB' })).reply;
   assert.equal(bz.data.flags, 64);
   assert.equal(bz.data.embeds[0].title, 'Enchanted Diamond');
-  assert.ok(bz.data.embeds[0].fields.some(f => f.name === 'Instant buy' && f.value === '172k'));
+  assert.ok(bz.data.embeds[0].fields.some(f => f.name === '🛒 Instant buy' && f.value === '172k'));
   assert.match(bot.handle(cmd('price', [{ name: 'item', value: 'zzzz' }])).reply.data.content, /«zzzz» не найден/);
 });
 
