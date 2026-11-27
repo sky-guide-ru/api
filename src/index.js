@@ -22,6 +22,7 @@ import { mountSkinRoutes } from './routes/skin.js';
 import { mountItemUpgradeRoutes, itemUpgradeCopies } from './routes/item-upgrades.js';
 import { variableView } from '@sky-guide/core/lib/variable-stats.js';
 import { setItemsResource, itemProps, obtainmentOf } from '@sky-guide/core/lib/item-props.js';
+import { soldStats } from '@sky-guide/core/market/auctions.js';
 import { darkAuctionOf } from '@sky-guide/core/analysis/dark-auction.js';
 import * as sbTime from '@sky-guide/core/calendar/time.js';
 import { mountObtainRoutes } from './routes/obtain.js';
@@ -193,6 +194,7 @@ const textRefsOf = text => enrichGuide({ status: 'ok', sections: [{ kind: 'text'
 const calendar = createCalendar({ textRefs: textRefsOf });
 const museumDeps = () => ({ constants: neu.constants, price: priceOf, name: id => itemName(id) });
 const stash = createStash(() => ({ pricesKey: () => `${prices.bazaarAt}:${prices.binAt}`, constants: neu.constants, price: priceOf, name: id => itemName(id), bazaar: id => prices.bazaar.get(id) || null, npc: id => npcPrices.get(id) || 0, owned: collectOwned, items: neu.items, whereToGet: id => getItemRu(id)?.whereToGet || [],
+  bin: id => prices.bin.get(id) || null, sold: id => soldStats(prices.sold, id), props: id => itemProps(id, { bazaar: prices.bazaar.has(id) }),
   textRefs: textRefsOf }));
 const collectionDeps = () => ({ items: neu.items });
 const minionDeps = m => {

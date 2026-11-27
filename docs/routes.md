@@ -46,6 +46,7 @@
 - `GET /api/roadmap/cart`
 - `GET /api/roadmap/hidden`
 - `GET /api/sacks`
+- `GET /api/sell`
 - `GET /api/search`
 - `GET /api/skin/:hash`
 - `GET /api/state`
