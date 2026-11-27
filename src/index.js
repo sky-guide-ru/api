@@ -319,13 +319,17 @@ function excludedFromStats({ uuid, name, profileId }) {
   if (hide && id) addBlocked(id);
   return !!hide;
 }
-const board = createLeaderboard({ file: path.join(config.dataDir, 'leaderboard.json'), isExcluded: boardFilter.isExcluded });
+// Гильдии, которые сайт уже узнал (кэш ядра, без новых запросов): рейтинг показывает их сразу,
+// не дожидаясь, пока профиль игрока запишут в таблицу заново
+const knownGuilds = new Map();
+const guildForBoard = (uuid, opts) => guildFor(uuid, opts).then(g => { if (g) knownGuilds.set(uuid, g); if (knownGuilds.size > 5000) knownGuilds.delete(knownGuilds.keys().next().value); return g; });
+const board = createLeaderboard({ file: path.join(config.dataDir, 'leaderboard.json'), isExcluded: boardFilter.isExcluded, guildOf: uuid => knownGuilds.get(uuid) });
 // Свой основной профиль владельца обновляет state.js, а не players.js — кладём его в рейтинг так же, как чужие.
 // Только когда цены загружены: иначе богатство = одни монеты
 const recordOwner = () => { if (state.status === 'ok' && state.member && pricesReady()) board.record({ player: state.player, member: state.member, analysis: state.analysis, updatedAt: state.updatedAt }); };
 bus.on('profile', recordOwner); bus.on('prices', recordOwner);
 bus.on('profile', () => warmEnAnalysis()); bus.on('prices', () => warmEnAnalysis());
-const players = createPlayers({ owner: () => state, ownerName: () => config.player, maxViews: 60, diskCache: createDiskCache({ dir: path.join(config.dataDir, 'hypixel-cache') }), rankFor, guildFor, historyFiles, keepHistory: name => !!auth.users.get(name), onUpdate: v => board.record(v) });
+const players = createPlayers({ owner: () => state, ownerName: () => config.player, maxViews: 60, diskCache: createDiskCache({ dir: path.join(config.dataDir, 'hypixel-cache') }), rankFor, guildFor: guildForBoard, historyFiles, keepHistory: name => !!auth.users.get(name), onUpdate: v => board.record(v) });
 auth.setProfileLookup(name => players.profileNames(name)); // проверка профиля друга на /account
 // Гость без входа может открыть не больше 30 разных ников за 10 минут с одного IP — чтобы перебор ников не съел лимит Hypixel
 const guestLimiter = createGuestLimiter({ max: Number(process.env.GUEST_PLAYERS_PER_10MIN) || 30 });

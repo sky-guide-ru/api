@@ -52,7 +52,7 @@ export function entryFromView(v, now = Date.now()) {
     mates: (m.coopRoster || []).map(c => String(c.uuid || '').replace(/-/g, '').toLowerCase()).filter(id => id && id !== uuid),
     rank: m.rank || null,
     // Тег гильдии — из того, что уже спросил профиль (кэш на час); рейтинг сам в Hypixel не ходит
-    guild: m.guild?.tag ? { tag: String(m.guild.tag).slice(0, 8), color: m.guild.tagColor || null } : null,
+    guild: guildChip(m.guild),
     // Без открытого API инвентаря стоимость занижена в разы — в таблицу «Богатство» такой профиль не ставим
     nw: !m.inv?.apiDisabled && nw > 0 ? Math.round(nw) : null,
     level: round1(m.sbLevel) || null,
@@ -105,12 +105,20 @@ export function createHiddenFilter(o) {
   };
 }
 
+// Для таблицы хватит тега и названия (у многих гильдий тега нет — тогда сайт показывает название)
+export function guildChip(g) {
+  if (!g?.name) return null;
+  return { tag: g.tag ? String(g.tag).slice(0, 12) : null, name: String(g.name).slice(0, 32), color: g.tagColor || null };
+}
+
 export function createLeaderboard(o) {
   const clock = o.clock || (() => Date.now());
   const maxEntries = o.maxEntries ?? 3000;
   const maxAgeMs = o.maxAgeMs ?? 60 * DAY; // профиль, который два месяца никто не открывал, уходит из рейтинга
   const entries = new Map(); // `${uuid}:${profileId}` → запись
   const optOut = new Map();  // uuid и ник (в нижнем регистре) → { uuid, name } того, кто попросил убрать себя
+  // Гильдия — свежая из кэша сайта (o.guildOf, без запросов к Hypixel), иначе та, что была при записи профиля
+  const guildNow = e => { const g = o.guildOf?.(e.uuid); return g === undefined ? (e.guild || null) : guildChip(g); };
   const addOpt = (u, n) => { const r = { uuid: u || '', name: n || '' }; if (u) optOut.set(u, r); if (n) optOut.set(n, r); };
 
   if (o.file) {
@@ -195,7 +203,7 @@ export function createLeaderboard(o) {
       }
       const sorted = [...best.values()].sort((a, c) => b.value(c) - b.value(a) || (a.name > c.name ? 1 : -1));
       const row = (e, i) => ({
-        place: i + 1, name: e.name, uuid: e.uuid, profile: e.profile, mode: e.mode, coop: e.coop, rank: e.rank, guild: e.guild || null,
+        place: i + 1, name: e.name, uuid: e.uuid, profile: e.profile, mode: e.mode, coop: e.coop, rank: e.rank, guild: guildNow(e),
         value: b.value(e), nw: e.nw, level: e.level, cata: e.cata, cls: e.cls, slayerXp: e.slayerXp, slayers: e.slayers,
         skillAvg: e.skillAvg, at: e.at,
       });
