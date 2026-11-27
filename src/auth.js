@@ -427,8 +427,8 @@ const meValue = (u, local = false) => encodeURIComponent(JSON.stringify({ n: u.n
 }
 
 // ---------- Страницы ----------
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const head = id => `/api/head/${encodeURIComponent(id || 'MHF_Steve')}?size=64`;
+export const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+export const head = id => `/api/head/${encodeURIComponent(id || 'MHF_Steve')}?size=64`;
 
 const CSS = `
   *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
@@ -472,7 +472,7 @@ const CSS = `
 // Кнопка формы нажимается один раз: двойной клик не отправляет форму дважды
 const ONCE = `document.addEventListener('submit',e=>{const b=e.target.querySelector('button[type=submit]');if(e.defaultPrevented||!b)return;if(b.dataset.sent){e.preventDefault();return}b.dataset.sent=1;setTimeout(()=>{b.style.opacity='.6'},0);setTimeout(()=>{delete b.dataset.sent;b.style.opacity=''},8000)});`;
 
-function shell(title, body, { wide = false, script = '' } = {}) {
+export function shell(title, body, { wide = false, script = '' } = {}) {
   return tx`<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
 <title>${esc(title)} · SkyBlock Трекер</title><style>${CSS}</style></head>

@@ -3,7 +3,7 @@ import 'dotenv/config'; // .env читает api, ядро его не груз�
 import { apiStats, keySince } from '@sky-guide/core/lib/api-stats.js';
 import { PARTS, statePart, partVersions, lightAnalysis, lightMember } from '@sky-guide/core/lib/state-parts.js';
 import { createStatus } from './status.js';
-import { keyedCallsRecent, keyedPause, keyUsage, resolveUuid } from '@sky-guide/core/hypixel.js';
+import { keyedCallsRecent, keyedPause, keyUsage, resolveUuid, getPlayer } from '@sky-guide/core/hypixel.js';
 import { rankFor } from '@sky-guide/core/rank.js';
 import { bingoRawFor, statusFor, knownStatus, skyblockNews } from '@sky-guide/core/live.js';
 import { guildFor } from '@sky-guide/core/guild.js';
@@ -50,7 +50,8 @@ import { buildGuides, GROUPS as GUIDE_GROUPS } from '@sky-guide/core/guides/inde
 import { mountGuideRoutes, guideList, guideOne } from './mount/guides.js';
 import { createSeo, jsonldScript, originOf, pingIndexNow, INDEXNOW_KEY } from './seo/index.js';
 import { createDiscordNews } from './discord-news.js';
-import { createDiscordBot, fileLinks } from './discord-bot/index.js';
+import { mountDiscordLink, createLinkStore } from './discord-link.js';
+import { createDiscordBot } from './discord-bot/index.js';
 import { createDiscordEvents } from './discord-events.js';
 import { NEWS } from '@sky-guide/core/news/entries.js';
 import { enrichGuide, lexiconPhrases, refsData } from '@sky-guide/core/guides/refs.js';
@@ -127,6 +128,9 @@ const siteOrigin = req => originOf(publicConfig(process.env).siteUrl, req.get('h
 mountPublicRoutes(app, { env: process.env, seo, origin: siteOrigin, indexNowKey: INDEXNOW_KEY }); // robots.txt, sitemap.xml, llms.txt — до входа
 // Правовые страницы, значок сайта и аватарки открыты всем, даже когда сайт закрыт паролем
 mountLegalRoutes(app, { env: process.env, isOwner: req => auth.isOwnerRequest(req) });
+// Привязка Discord к нику (роль Verified на сервере): /discord, тоже до входа. Привязки — data/discord-links.json, наружу не отдаются
+const discordLinks = createLinkStore(path.join(config.dataDir, 'discord-links.json'));
+mountDiscordLink(app, { env: process.env, store: discordLinks, siteUrl: publicConfig(process.env).siteUrl, clientIp: auth.clientIp, resolveUuid, getPlayer });
 app.get(['/og.png', '/og-en.png'], (req, res) => res.set('Cache-Control', 'public, max-age=86400').type('image/png').sendFile(path.join(config.webDist, req.path.slice(1))));
 app.get('/favicon.svg', (req, res) => res.set('Cache-Control', 'public, max-age=86400').type('image/svg+xml').sendFile(path.join(config.webDist, 'favicon.svg')));
 // Аватарки открыты и до входа (страница входа); незнакомый ник сервер скачивает с mc-heads.net — поэтому свой лимит
@@ -281,8 +285,8 @@ const discordBot = createDiscordBot({
     steps: (v.analysis?.roadmap || []).filter(s => s.priority > 0).map(v1Step) }),
   translate: (x, lang) => inLang(lang, () => translateDeep(x)),
   search: (q, limit) => searchList(q, limit), quote: id => quoteOf(id),
-  linkOf: fileLinks(path.join(config.dataDir, 'discord-links.json')), linkPage: false,
-  allowNick: (user, nick) => players.isOwner({ player: nick }) || (botNickLimit.allow(`u:${user}`, nick) && botAllLimit.allow('all', nick)),
+  linkOf: id => discordLinks.linkOf(id), linkPage: true, // привязки со страницы /discord (discord-link.js)
+  allowNick: (user, nick) => players.isOwner({ player: nick, profile: '' }) || (botNickLimit.allow(`u:${user}`, nick) && botAllLimit.allow('all', nick)),
   commandsFile: path.join(config.dataDir, 'discord-commands.json'),
 });
 app.use(discordBot.router);
