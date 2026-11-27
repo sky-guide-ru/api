@@ -193,7 +193,7 @@ const upgradeDeps = { neu, priceOf, buyPriceOf, get binVar() { return prices.bin
 const textRefsOf = text => enrichGuide({ status: 'ok', sections: [{ kind: 'text', text }] }, { items: neu.items, constants: neu.constants, price: priceOf }).refs;
 const calendar = createCalendar({ textRefs: textRefsOf });
 const museumDeps = () => ({ constants: neu.constants, price: priceOf, name: id => itemName(id) });
-const stash = createStash(() => ({ pricesKey: () => `${prices.bazaarAt}:${prices.binAt}`, constants: neu.constants, price: priceOf, name: id => itemName(id), bazaar: id => prices.bazaar.get(id) || null, npc: id => npcPrices.get(id) || 0, owned: collectOwned, items: neu.items, whereToGet: id => getItemRu(id)?.whereToGet || [],
+const stash = createStash(() => ({ pricesKey: () => `${prices.bazaarAt}:${prices.binAt}`, constants: neu.constants, price: priceOf, buy: buyPriceOf, name: id => itemName(id), bazaar: id => prices.bazaar.get(id) || null, npc: id => npcPrices.get(id) || 0, owned: collectOwned, items: neu.items, whereToGet: id => getItemRu(id)?.whereToGet || [],
   bin: id => prices.bin.get(id) || null, sold: id => soldStats(prices.sold, id), props: id => itemProps(id, { bazaar: prices.bazaar.has(id) }),
   textRefs: textRefsOf }));
 const collectionDeps = () => ({ items: neu.items });
