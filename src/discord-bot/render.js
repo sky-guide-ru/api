@@ -63,7 +63,7 @@ const plain = s => String(s ?? '').replace(/\s+/g, ' ').replace(/§./g, '').repl
 const esc = s => String(s ?? '').replace(/([\\*_`~|>[\]])/g, '\\$1'); // ник вида __Steve__ не должен превращаться в разметку
 
 // Слееры — значком и уровнем: шесть боссов умещаются в одну строку
-const SLAYER_ICON = { zombie: '🧟', spider: '🕷️', wolf: '🐺', enderman: '🔮', blaze: '🔥', vampire: '🩸' };
+const SLAYER_ICON = { zombie: '🧟', spider: '🕸️', wolf: '🐺', enderman: '🔮', blaze: '🔥', vampire: '🩸' };
 const RARITY_ICON = { common: '⚪', uncommon: '🟢', rare: '🔵', epic: '🟣', legendary: '🟡', mythic: '🩷', divine: '🩵', special: '🔴', very_special: '🔴' };
 
 /** Ссылки на сайт: профиль, план и предмет. ?player= — так ссылкой можно поделиться и на самом сайте */
@@ -83,7 +83,7 @@ export function profileMessage(s, { lang = 'ru', site, next = [] } = {}) {
   const t = T[lang];
   const name = s.player?.name || '?';
   const links = siteLinks(site, lang, name, s.missingProfile ? '' : s.profile);
-  const slayers = Object.entries(s.slayers || {}).filter(([, x]) => x.level > 0).map(([k, x]) => `${SLAYER_ICON[k] || x.boss} ${x.level}`).join('  ');
+  const slayers = Object.entries(s.slayers || {}).filter(([, x]) => x.level > 0).map(([k, x]) => `${SLAYER_ICON[k] || x.boss} ${x.level}`).join(' · ');
   const d = s.dungeons || {};
   const cls = d.selectedClass ? ` · ${titleCase(d.selectedClass)}` : '';
   const pet = s.pets?.active;
@@ -95,9 +95,9 @@ export function profileMessage(s, { lang = 'ru', site, next = [] } = {}) {
     field('📚', t.skillAvg, (Math.round((s.skillAverage || 0) * 100) / 100).toFixed(2)),
     field('💀', t.cata, `${Math.floor(d.level || 0)}${cls}`),
     field('✨', t.mp, String(s.accessories?.mp || 0)),
-    field('🐾', t.pet, pet ? `${RARITY_ICON[String(pet.tier).toLowerCase()] || ''} ${titleCase(pet.type)} · ${pet.level}`.trim() : t.noPet),
+    field('🐣', t.pet, pet ? `${RARITY_ICON[String(pet.tier).toLowerCase()] || ''} ${titleCase(pet.type)} · ${pet.level}`.trim() : t.noPet),
     ...(s.mining?.hotm ? [field('⛏️', t.hotm, String(s.mining.hotm))] : []),
-    ...(slayers ? [field('⚔️', t.slayers, slayers)] : []),
+    ...(slayers ? [field('⚔️', t.slayers, slayers, false)] : []),
     ...(next.length ? [field('🧭', t.next, next.slice(0, 3).map((x, i) => `\`${i + 1}\` ${esc(plain(x.title))}`).join('\n'), false)] : []),
   ];
   const mode = s.gameMode && s.gameMode !== 'normal' ? ` · ${titleCase(s.gameMode)}` : '';
@@ -154,13 +154,12 @@ export function priceMessage(item, q, { lang = 'ru', site } = {}) {
       field('📦', t.ahLots, `${q.lots || 0}\n${q.sold24 || 0} ${t.ahSold}`),
     ];
   }
-  if (change) fields.push({ name: '​', value: change, inline: false });
   const sub = lang === 'ru' && item.nameRu && item.nameRu !== item.name ? item.nameRu : '';
   const market = q ? (q.market === 'bazaar' ? `🏪 ${t.bazaar}` : `🔨 ${t.ah}`) : t.noPrice;
   return {
     embeds: [{
       title: cut(plain(item.name || item.id), 256), url: links.item(item.id), color: COLOR,
-      description: [market, sub].filter(Boolean).join(' · '),
+      description: [[market, sub].filter(Boolean).join(' · '), change].filter(Boolean).join('\n'),
       thumbnail: { url: `${site}/v1/items/${encodeURIComponent(item.id)}/image` },
       fields, footer: footer(site), timestamp: new Date().toISOString(),
     }],

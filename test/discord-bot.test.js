@@ -155,10 +155,9 @@ test('/price: сразу отвечает; Auction House и Bazaar; не най�
   assert.equal(ah.type, 4);
   const e = ah.data.embeds[0];
   assert.equal(e.title, 'Hyperion');
-  assert.equal(e.description, '🔨 Auction House · Гиперион');
+  assert.equal(e.description, '🔨 Auction House · Гиперион\n📈 +1.2% за сутки · 📉 -3% за неделю');
   assert.equal(e.url, `${SITE}/item/HYPERION`);
   assert.ok(e.fields.some(f => f.name === '🏷️ Lowest BIN' && f.value === '525M'));
-  assert.ok(e.fields.some(f => f.value === '📈 +1.2% за сутки · 📉 -3% за неделю'));
   const bz = bot.handle(cmd('price', [{ name: 'item', value: 'ENCHANTED_DIAMOND' }, { name: 'private', value: true }], { locale: 'en-GB' })).reply;
   assert.equal(bz.data.flags, 64);
   assert.equal(bz.data.embeds[0].title, 'Enchanted Diamond');
