@@ -244,3 +244,42 @@ test('/link и /unlink: личный ответ, проверка Discord в Hyp
   // без настроенной привязки — честный отказ
   assert.match(makeBot().bot.handle(cmd('unlink', [], u)).reply.data.content, /не работает/);
 });
+
+test('кнопка «Верификация»: окно с ником, проверка как у /link; «Отвязать»; сообщение с кнопками от админа', async () => {
+  const calls = [];
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-'));
+  const { bot, edits } = makeBot({
+    link: async (user, nick) => { calls.push(['link', user.id, nick]); return { r: 'ok', nick, nickSet: false }; },
+    unlink: async user => { calls.push(['unlink', user.id]); return { r: 'none' }; },
+    allowLink: () => true, verifyFile: path.join(dir, 'v.json'),
+  });
+  const u = { member: { user: { id: '77', username: 'cat', discriminator: '0' } }, token: 'itok', locale: 'ru' };
+  const modal = bot.handle({ ...u, type: 3, data: { custom_id: 'sg:verify', component_type: 2 } }).reply;
+  assert.equal(modal.type, 9);
+  assert.equal(modal.data.custom_id, 'sg:verify');
+  assert.equal(modal.data.components[0].components[0].custom_id, 'nick');
+  const sub = bot.handle({ ...u, type: 5, data: { custom_id: 'sg:verify', components: [{ type: 1, components: [{ type: 4, custom_id: 'nick', value: ' Steve ' }] }] } });
+  assert.equal(sub.reply.type, 5);
+  assert.equal(sub.reply.data.flags, 64);
+  await sub.after();
+  assert.deepEqual(calls[0], ['link', '77', 'Steve']);
+  assert.match(edits.at(-1).body.content, /Steve\*\* привязан/);
+  // новые окна Discord: поле внутри подписи (type 18)
+  const sub18 = bot.handle({ ...u, type: 5, data: { custom_id: 'sg:verify', components: [{ type: 18, component: { type: 4, custom_id: 'nick', value: 'Alex' } }] } });
+  await sub18.after();
+  assert.deepEqual(calls[1], ['link', '77', 'Alex']);
+  const un = bot.handle({ ...u, type: 3, data: { custom_id: 'sg:unlink', component_type: 2 } });
+  await un.after();
+  assert.match(edits.at(-1).body.content, /не привязан ник/);
+  // панель: POST в канал, личный ответ «поставлено»
+  const panel = bot.handle(cmd('verify-panel', [], { channel_id: '555555' }));
+  assert.equal(panel.reply.data.flags, 64);
+  await panel.after();
+  const post = edits.find(e => e.method === 'POST');
+  assert.equal(post.url, 'https://discord.com/api/v10/channels/555555/messages');
+  assert.equal(post.auth, 'Bot tok');
+  assert.deepEqual(post.body.components[0].components.map(b => b.custom_id), ['sg:verify', 'sg:unlink']);
+  assert.match(edits.at(-1).body.content, /поставлено/);
+  // без привязки на сервере кнопка честно отказывает
+  assert.match(makeBot().bot.handle({ ...u, type: 3, data: { custom_id: 'sg:verify' } }).reply.data.content, /не работает/);
+});
