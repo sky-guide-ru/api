@@ -43,6 +43,7 @@
 - `GET /api/refs/data`
 - `GET /api/refs/lexicon`
 - `GET /api/rift/marks`
+- `GET /api/roadmap/cart`
 - `GET /api/roadmap/hidden`
 - `GET /api/sacks`
 - `GET /api/search`
@@ -58,6 +59,7 @@
 - `POST /api/packs/reload`
 - `POST /api/refresh`
 - `POST /api/rift/marks`
+- `POST /api/roadmap/cart`
 - `POST /api/roadmap/hidden`
 - `POST /api/t`
 
