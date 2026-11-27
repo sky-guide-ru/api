@@ -5,6 +5,7 @@ import { buildObtainGuide } from '@sky-guide/core/analysis/obtain.js';
 import { collectionsFromNeu } from '@sky-guide/core/market/requirements.js';
 import { soldStats } from '@sky-guide/core/market/auctions.js';
 import { ahNet, DEFAULT_BAZAAR_TAX } from '@sky-guide/core/market/util.js';
+import { profileMode } from '@sky-guide/core/lib/profile-mode.js';
 
 /**
  * Цена покупки сейчас: Bazaar (мгновенно и через заказ) или lowest BIN на аукционе.
@@ -40,6 +41,8 @@ export function obtainGuide(id, { neu, prices, getCollections, member = null }) 
   if (!neu.items.has(id)) return null;
   return buildObtainGuide(id, {
     items: neu.items, constants: neu.constants, buy: makeBuy(prices), member,
+    // Ironman, Stranded, Bingo: без Bazaar и аукциона — только NPC, крафт и дроп
+    noMarket: !!member && profileMode(member.gameMode).market === false,
     collections: getCollections() || collectionsFromNeu(neu.items),
   });
 }
