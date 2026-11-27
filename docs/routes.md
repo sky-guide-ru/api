@@ -199,6 +199,13 @@
 - `POST /login`
 - `POST /logout`
 
+## Discord
+
+- `GET /discord`
+- `GET /discord/callback`
+- `GET /discord/start`
+- `GET /en/discord`
+
 ## Страницы и файлы
 
 - `GET /`
