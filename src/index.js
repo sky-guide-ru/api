@@ -49,6 +49,7 @@ import { itemValue } from '@sky-guide/core/parse/gear.js';
 import { buildGuides, GROUPS as GUIDE_GROUPS } from '@sky-guide/core/guides/index.js';
 import { mountGuideRoutes, guideList, guideOne } from './mount/guides.js';
 import { createSeo, jsonldScript, originOf, pingIndexNow, INDEXNOW_KEY } from './seo/index.js';
+import { createDiscordNews } from './discord-news.js';
 import { NEWS } from '@sky-guide/core/news/entries.js';
 import { enrichGuide, lexiconPhrases, refsData } from '@sky-guide/core/guides/refs.js';
 import { GUI_ITEMS } from '@sky-guide/core/lib/gui-items.js';
@@ -946,6 +947,15 @@ async function main() {
     pingIndexNow({ origin: publicConfig(process.env).siteUrl, urls: seo.urls().map(u => u.path), build: buildId(), store })
       .then(ok => ok && console.log('[seo] IndexNow: адреса страниц отправлены')).catch(() => {});
   }, 90_000).unref?.();
+  // Новости сайта и патчноуты SkyBlock — в канал Discord (только с DISCORD_NEWS_WEBHOOK в .env; что отправлено — data/discord-news.json)
+  const discordNews = createDiscordNews({
+    webhook: process.env.DISCORD_NEWS_WEBHOOK, siteUrl: publicConfig(process.env).siteUrl, file: path.join(config.dataDir, 'discord-news.json'),
+    patches: skyblockNews, translate: s => inLang('en', () => getTranslator().tr(s)),
+  });
+  if (discordNews.enabled) {
+    setTimeout(() => discordNews.tick(), 120_000).unref?.();
+    setInterval(() => discordNews.tick(), 15 * 60_000).unref?.();
+  } else if (process.env.DISCORD_NEWS_WEBHOOK) console.warn('[discord] DISCORD_NEWS_WEBHOOK не похож на адрес webhook Discord — новости в канал не отправляются');
   // Цены NPC и пороги коллекций — параллельно с профилем и ценами, а не перед ними: раньше каждый перезапуск
   // ждал эти два запроса (а при сбое Hypixel — их таймауты) до первого профиля. Пришли — пересчитываем советы
   Promise.allSettled([
