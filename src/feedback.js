@@ -10,7 +10,8 @@ import { smtpConfig, sendMail } from './lib/smtp.js';
 import { tx } from '@sky-guide/core/i18n/msg.js';
 
 export const SUBJECT_TAG = '[Sky Guide] Отзыв';
-export const TYPES = { bug: 'Ошибка', translate: 'Перевод', data: 'Неверные данные', idea: 'Идея' };
+// nick — запрос «убрать ник из рейтинга» (кнопка «Убрать ник» в рейтинге): ник в target, текст — по желанию
+export const TYPES = { bug: 'Ошибка', translate: 'Перевод', data: 'Неверные данные', idea: 'Идея', nick: 'Убрать ник' };
 const MAX_TEXT = 4000, MIN_TEXT = 5, MAX_SHOT = 1_500_000, KEEP = 1000;
 
 /**
@@ -39,7 +40,9 @@ export function validateFeedback(body = {}, { now = Date.now() } = {}) {
   if (openedAt && now - openedAt < 3000) return { spam: true };
   const type = Object.hasOwn(TYPES, body.type) ? body.type : 'bug';
   const text = clip(body.text, MAX_TEXT);
-  if (text.length < MIN_TEXT) return { error: 'Опиши подробнее — хотя бы пару слов' };
+  const target = type === 'nick' ? clip(body.target, 16) : '';
+  if (type === 'nick' && !/^[A-Za-z0-9_]{1,16}$/.test(target)) return { error: 'Впиши ник Minecraft, который убрать из рейтинга' };
+  if (type !== 'nick' && text.length < MIN_TEXT) return { error: 'Опиши подробнее — хотя бы пару слов' };
   const nick = clip(body.player, 36);
   let shot = null;
   if (body.screenshot) {
@@ -52,6 +55,7 @@ export function validateFeedback(body = {}, { now = Date.now() } = {}) {
   return {
     item: {
       type, text,
+      ...(target ? { target } : {}),
       page: clip(body.page, 300),
       player: /^[A-Za-z0-9_]{1,16}$/.test(nick) ? nick : '',
       profile: clip(body.profile, 24).replace(/[^\p{L}\p{N} _-]/gu, ''),
@@ -66,10 +70,12 @@ export function validateFeedback(body = {}, { now = Date.now() } = {}) {
 
 /** Текст письма — всё, что нужно, чтобы воспроизвести проблему, без лишнего */
 export function mailFor(f, { siteUrl = '' } = {}) {
-  const first = f.text.split('\n')[0].slice(0, 70);
-  const subject = `${SUBJECT_TAG} · ${TYPES[f.type] || 'Отзыв'}: ${first}${f.text.length > first.length ? '…' : ''}`;
+  const head = f.type === 'nick' ? f.target || '' : f.text;
+  const first = head.split('\n')[0].slice(0, 70);
+  const subject = `${SUBJECT_TAG} · ${TYPES[f.type] || 'Отзыв'}: ${first}${head.length > first.length ? '…' : ''}`;
   const lines = [
     tx`Тип: ${TYPES[f.type] || f.type}`,
+    f.target ? tx`Убрать из рейтинга: ${f.target} (кнопка в разделе «Отзывы»)` : null,
     tx`Номер: ${f.id}`,
     tx`Время: ${new Date(f.at).toISOString()}`,
     tx`Страница: ${f.page || '—'}${siteUrl && f.page && f.page.startsWith('/') ? ` (${siteUrl.replace(/\/$/, '')}${f.page})` : ''}`,
@@ -82,7 +88,7 @@ export function mailFor(f, { siteUrl = '' } = {}) {
     f.shot ? 'Скриншот: во вложении' : null,
     '',
     '—— Текст ——',
-    f.text,
+    f.text || '—',
     '',
     '—',
     'Письмо отправил сайт Sky Guide. Все отзывы — в разделе «Отзывы» (только для владельца).',

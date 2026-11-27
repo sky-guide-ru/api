@@ -6,7 +6,9 @@
 // Приватность: в рейтинг не попадают игроки, попросившие скрыть профиль (HIDDEN_PLAYERS), — проверка и при записи,
 // и при каждой выдаче. Владелец сайта и его друзья с 24.11.2026 стоят в рейтинге как обычные игроки (по просьбе
 // владельца): без пометок «владелец»/«друг» и без особого порядка.
-// Игрок может убрать себя сам: запись удаляется, а ник/uuid запоминается, чтобы не вернуться при следующем просмотре.
+// Убрать ник из рейтинга может только владелец (раздел «Отзывы»): игрок присылает запрос кнопкой «Убрать ник» —
+// это обычный отзыв с типом nick. Раньше убрать мог любой гость, и любой ник — так чужие ники пропадали из таблицы.
+// После удаления ник/uuid запоминается, чтобы не вернуться при следующем просмотре.
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -201,7 +203,7 @@ export function createLeaderboard(o) {
       return { board: b === BOARDS[board] ? board : 'networth', rows, total: sorted.length, me: i >= 0 ? row(sorted[i], i) : null };
     },
 
-    /** Игрок просит убрать себя: удаляем все его профили и больше не записываем */
+    /** Владелец убирает игрока (по его запросу): удаляем все его профили и больше не записываем */
     remove({ uuid, name }) {
       const u = String(uuid || '').replace(/-/g, '').toLowerCase();
       const n = String(name || '').trim().toLowerCase();
@@ -222,6 +224,8 @@ export function createLeaderboard(o) {
       return true;
     },
 
+    /** Кто убран из рейтинга — для раздела «Отзывы» (только владелец) */
+    removed: () => [...new Set(optOut.values())].map(r => ({ uuid: r.uuid, name: r.name })),
     isOptedOut: ({ uuid, name }) => optOut.has(String(uuid || '').replace(/-/g, '').toLowerCase()) || optOut.has(String(name || '').toLowerCase()),
     size: () => entries.size,
     flush,
@@ -229,7 +233,7 @@ export function createLeaderboard(o) {
   };
 }
 
-/** Простой лимит «не больше N действий за окно» по IP — для кнопки «Убрать меня» */
+/** Простой лимит «не больше N действий за окно» по IP */
 export function createActionLimiter({ max = 5, windowMs = 3600_000, clock = () => Date.now() } = {}) {
   const hits = new Map();
   return ip => {
@@ -245,8 +249,9 @@ export function createActionLimiter({ max = 5, windowMs = 3600_000, clock = () =
 
 /**
  * GET  /api/leaderboard?board=networth&mode=all&find=Ник  — таблица (find — место этого игрока, если он есть)
- * POST /api/leaderboard/remove { player }                — убрать себя из рейтинга (открыто Visitors, с лимитом)
+ * POST /api/leaderboard/remove { player }                — убрать из рейтинга (только владелец; игрок просит через отзыв)
  * POST /api/leaderboard/restore { player }               — вернуть (только владелец)
+ * GET  /api/admin/leaderboard/removed                    — кто убран (только владелец)
  */
 /** Таблица лидеров: для /api/leaderboard и /v1/leaderboard. q: { board, mode, limit, find } */
 export function leaderboardView(board, q = {}) {
@@ -255,8 +260,7 @@ export function leaderboardView(board, q = {}) {
   return { ...r, mode, tracked: board.size(), boards: Object.entries(BOARDS).map(([id, b]) => ({ id, label: b.label })) };
 }
 
-export function mountLeaderboardRoutes(app, { board, clientIp = req => req.ip, isAdmin = () => false, express }) {
-  const limit = createActionLimiter({ max: 5, windowMs: 3600_000 });
+export function mountLeaderboardRoutes(app, { board, isAdmin = () => false, express }) {
   const json = express.json({ limit: '2kb' });
   const nick = s => String(s || '').trim().slice(0, 36);
   const valid = s => /^[A-Za-z0-9_]{1,16}$/.test(s) || /^[0-9a-f]{32}$/i.test(s.replace(/-/g, ''));
@@ -265,9 +269,9 @@ export function mountLeaderboardRoutes(app, { board, clientIp = req => req.ip, i
 
   app.post('/api/leaderboard/remove', json, (req, res) => {
     if (req.headers['sec-fetch-site'] === 'cross-site') return res.status(403).json({ error: 'Только со страницы сайта' });
+    if (!isAdmin(req)) return res.status(403).json({ error: 'Убрать ник из рейтинга можно запросом: кнопка «Убрать ник» в рейтинге' });
     const p = nick(req.body?.player);
-    if (!valid(p)) return res.status(400).json({ error: 'Впиши свой ник Minecraft' });
-    if (!limit(clientIp(req))) return res.status(429).json({ error: 'Слишком много запросов. Попробуй через час' });
+    if (!valid(p)) return res.status(400).json({ error: 'Нужен ник Minecraft' });
     const asUuid = /^[0-9a-f]{32}$/i.test(p.replace(/-/g, '')) ? p : '';
     // uuid берём из записей: так отказ переживёт смену ника
     const found = [...board._entries.values()].find(e => (asUuid ? e.uuid === asUuid.replace(/-/g, '').toLowerCase() : e.name.toLowerCase() === p.toLowerCase()));
@@ -279,5 +283,10 @@ export function mountLeaderboardRoutes(app, { board, clientIp = req => req.ip, i
     if (!isAdmin(req)) return res.status(403).json({ error: 'Это может только владелец сайта' });
     const p = nick(req.body?.player);
     res.json({ ok: board.restore({ name: p, uuid: p }) });
+  });
+
+  app.get('/api/admin/leaderboard/removed', (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: 'Это может только владелец сайта' });
+    res.set('Cache-Control', 'no-store').json({ items: board.removed() });
   });
 }

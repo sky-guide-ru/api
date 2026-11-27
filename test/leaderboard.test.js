@@ -136,3 +136,28 @@ test('фильтр рейтинга без скрытых игроков пус�
   assert.equal(f.isExcluded({ uuid: 'x', name: '' }), false);
   assert.equal(f.isExcluded({ uuid: 'x', name: 'Steve' }), false);
 });
+
+test('убрать ник из рейтинга может только владелец; гость получает отказ и подсказку про запрос', async () => {
+  const { mountLeaderboardRoutes } = await import('../src/leaderboard.js');
+  const express = (await import('express')).default;
+  const b = make();
+  b.record(view('Steve', 'aaa'));
+  let admin = false;
+  const app = express();
+  mountLeaderboardRoutes(app, { board: b, express, isAdmin: () => admin });
+  const srv = app.listen(0);
+  const url = `http://127.0.0.1:${srv.address().port}`;
+  const post = p => fetch(`${url}/api/leaderboard/remove`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ player: p }) });
+  try {
+    const g = await post('Steve');
+    assert.equal(g.status, 403);
+    assert.match((await g.json()).error, /Убрать ник/);
+    assert.equal(b.top('networth').rows.length, 1, 'гость ничего не убрал');
+    assert.equal((await fetch(`${url}/api/admin/leaderboard/removed`)).status, 403);
+    admin = true;
+    const r = await post('Steve');
+    assert.deepEqual(await r.json(), { ok: true, removed: 1 });
+    assert.equal(b.top('networth').rows.length, 0);
+    assert.deepEqual((await (await fetch(`${url}/api/admin/leaderboard/removed`)).json()).items, [{ uuid: 'aaa', name: 'steve' }]);
+  } finally { srv.close(); }
+});

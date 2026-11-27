@@ -65,6 +65,7 @@
 
 - `GET /api/admin/feedback`
 - `GET /api/admin/feedback/:id/shot`
+- `GET /api/admin/leaderboard/removed`
 - `GET /api/admin/mail/check`
 - `GET /api/admin/monitor`
 - `GET /api/admin/status`
