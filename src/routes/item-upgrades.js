@@ -1,13 +1,15 @@
 // GET /api/item/:id/upgrades — все экземпляры этого предмета у игрока и чек-лист улучшений для каждого.
 // Если предмета у игрока нет — copies: [] (карточка тогда показывает, где его взять).
 // У экземпляра также: market — похожие лоты аукциона (те же звёзды и Recombobulator), value — оценка с улучшениями,
-// bonus — текущий бонус предмета с меняющимися статами, family — линейка аксессуара и дубли в сумке.
+// bonus — текущий бонус предмета с меняющимися статами, family — линейка аксессуара и дубли в сумке,
+// museum — сдан в Museum и одолжен обратно, sellable — можно ли продать именно этот экземпляр.
 import { planItemUpgrades } from '@sky-guide/core/analysis/item-upgrades.js';
 import { allStoredItems, itemValue, petValue } from '@sky-guide/core/parse/gear.js';
 import { buildUpgrades } from '@sky-guide/core/lib/acc-upgrades.js';
 import { currentBonus } from '@sky-guide/core/lib/variable-stats.js';
 import { variantKey } from '@sky-guide/core/market/resale.js';
 import { tx } from '@sky-guide/core/i18n/msg.js';
+import { canSellCopy } from '@sky-guide/core/lib/item-props.js';
 
 const RARITIES = ['COMMON', 'UNCOMMON', 'RARE', 'EPIC', 'LEGENDARY', 'MYTHIC', 'DIVINE', 'SPECIAL', 'VERY SPECIAL'];
 
@@ -65,6 +67,8 @@ export function itemUpgradeCopies(member, id, deps) {
       copies.push({
         uuid: it.uuid || `${it.where}-${copies.length}`, where: it.where, name: it.name, rawName: it.rawName, rarity: it.rarity, value: itemValue(it),
         baseRarity: baseRarity && RARITIES.includes(baseRarity) ? baseRarity : null, recomb: !!it.recomb,
+        // сданный в Museum (одолжен обратно) или Soulbound экземпляр продать нельзя: карточка так и пишет
+        museum: !!it.museum, sellable: canSellCopy(it),
         market: lot ? { price: lot.price, count: lot.count || 0, recomb: !!it.recomb, stars: Number(it.stars || 0) } : null,
         bonus: currentBonus(it.id, it.lore || []),
         family: plan.kind === 'accessory' ? accessoryFamily(it.id, bagIds, neu.constants?.misc?.talisman_upgrades) : null,
