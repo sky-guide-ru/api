@@ -283,3 +283,34 @@ test('кнопка «Верификация»: окно с ником, пров�
   // без привязки на сервере кнопка честно отказывает
   assert.match(makeBot().bot.handle({ ...u, type: 3, data: { custom_id: 'sg:verify' } }).reply.data.content, /не работает/);
 });
+
+test('сообщение верификации само стоит в #verify последним: ставит, не трогает, правит, переставляет', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'panel-'));
+  const log = [];
+  let top = null, n = 0;
+  const fetch = async (url, o = {}) => {
+    const method = o.method || 'GET';
+    log.push(`${method} ${url.replace('https://discord.com/api/v10', '')}`);
+    const json = async () => {
+      if (url.endsWith('/guilds/99999/channels')) return [{ id: '10', type: 2, name: 'voice' }, { id: '11', type: 0, name: '✅verify✅' }];
+      if (url.includes('messages?limit=1')) return top ? [{ id: top }] : [];
+      if (method === 'POST') { top = `m${++n}`; return { id: top }; }
+      return {};
+    };
+    return { ok: true, status: 200, json };
+  };
+  const { bot } = makeBot({ env: { ...ENV, DISCORD_GUILD_ID: '99999' }, fetch, link: async () => ({}), unlink: async () => ({}), verifyFile: path.join(dir, 'v.json') });
+  assert.equal(await bot.ensurePanel(), 'posted');
+  assert.ok(log.includes('POST /channels/11/messages'));
+  assert.equal(await bot.ensurePanel(), 'ok'); // уже последнее и тот же текст
+  assert.equal(log.filter(x => x.startsWith('POST')).length, 1);
+  top = 'someone'; // под сообщением появилось чужое
+  assert.equal(await bot.ensurePanel(), 'posted');
+  assert.ok(log.includes('DELETE /channels/11/messages/m1'));
+  const f = JSON.parse(fs.readFileSync(path.join(dir, 'v.json'), 'utf8'));
+  fs.writeFileSync(path.join(dir, 'v.json'), JSON.stringify({ ...f, hash: 'old' }));
+  assert.equal(await bot.ensurePanel(), 'edited'); // текст поменялся — правим на месте
+  assert.ok(log.includes('PATCH /channels/11/messages/m2'));
+  // без привязки ничего не ставим
+  assert.equal(await makeBot({ fetch }).bot.ensurePanel(), 'off');
+});
