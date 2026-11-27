@@ -5,7 +5,7 @@ import { PARTS, statePart, partVersions, lightAnalysis, lightMember } from '@sky
 import { createStatus } from './status.js';
 import { keyedCallsRecent, keyedPause, keyUsage, resolveUuid } from '@sky-guide/core/hypixel.js';
 import { rankFor } from '@sky-guide/core/rank.js';
-import { bingoRawFor, statusFor, skyblockNews } from '@sky-guide/core/live.js';
+import { bingoRawFor, statusFor, knownStatus, skyblockNews } from '@sky-guide/core/live.js';
 import { guildFor } from '@sky-guide/core/guild.js';
 import express from 'express';
 import path from 'node:path';
@@ -324,7 +324,7 @@ function excludedFromStats({ uuid, name, profileId }) {
 // не дожидаясь, пока профиль игрока запишут в таблицу заново
 const knownGuilds = new Map();
 const guildForBoard = (uuid, opts) => guildFor(uuid, opts).then(g => { if (g) knownGuilds.set(uuid, g); if (knownGuilds.size > 5000) knownGuilds.delete(knownGuilds.keys().next().value); return g; });
-const board = createLeaderboard({ file: path.join(config.dataDir, 'leaderboard.json'), isExcluded: boardFilter.isExcluded, guildOf: uuid => knownGuilds.get(uuid) });
+const board = createLeaderboard({ file: path.join(config.dataDir, 'leaderboard.json'), isExcluded: boardFilter.isExcluded, guildOf: uuid => knownGuilds.get(uuid), onlineOf: uuid => { const s = knownStatus(uuid); return s?.online ? { island: s.island || null } : null; } });
 // Свой основной профиль владельца обновляет state.js, а не players.js — кладём его в рейтинг так же, как чужие.
 // Только когда цены загружены: иначе богатство = одни монеты
 const recordOwner = () => { if (state.status === 'ok' && state.member && pricesReady()) board.record({ player: state.player, member: state.member, analysis: state.analysis, updatedAt: state.updatedAt }); };
