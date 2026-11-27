@@ -513,7 +513,7 @@ mountFeedbackRoutes(app, { express, feedback, clientIp: auth.clientIp, requireAd
 // «Опрос»: каким быть советчику (server/survey). Ответы — data/survey.json; SURVEY_GOAL — сколько прошедших до пилота
 mountSurveyRoutes(app, { express, store: createSurveyStore(config.dataDir), clientIp: auth.clientIp, requireAdmin: auth.requireAdmin, goal: Number(process.env.SURVEY_GOAL) || 100, langOf: () => (isEn() ? 'en' : 'ru') });
 app.get('/api/players/stats', (req, res) => res.json(players.stats()));
-mountLeaderboardRoutes(app, { board, express, clientIp: auth.clientIp, isAdmin: req => !req.sbGuest && (!req.sbUser || !!req.sbUser.admin) });
+mountLeaderboardRoutes(app, { board, express, isAdmin: req => !req.sbGuest && (!req.sbUser || !!req.sbUser.admin) });
 
 // Сравнение профилей: /api/compare?p=Steve/Apple&p=Alex/Banana (до 4 игроков). Пустой профиль — тот, где игрок играет
 app.get('/api/compare', async (req, res) => {

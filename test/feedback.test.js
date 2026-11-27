@@ -166,3 +166,16 @@ test('браузер в отзыве хранится коротко: брауз
   assert.equal(shortUa('Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 YaBrowser/24.10.1 Mobile Safari/537.36'), 'YaBrowser 24 · Android');
   assert.equal(shortUa(''), '');
 });
+
+test('запрос «убрать ник»: нужен ник, текст по желанию, ник — в теме письма', () => {
+  const now = 1_000_000;
+  assert.ok(validateFeedback({ type: 'nick', text: '' }, { now }).error);
+  assert.ok(validateFeedback({ type: 'nick', target: 'не ник!' }, { now }).error);
+  const v = validateFeedback({ type: 'nick', target: 'Steve', text: '' }, { now });
+  assert.equal(v.item.type, 'nick');
+  assert.equal(v.item.target, 'Steve');
+  assert.equal(validateFeedback({ type: 'bug', target: 'Steve', text: 'сломалось' }, { now }).item.target, undefined, 'ник для удаления — только у запроса');
+  const m = mailFor({ ...v.item, id: 'x', at: now });
+  assert.match(m.subject, /Убрать ник: Steve$/);
+  assert.match(m.text, /Убрать из рейтинга: Steve/);
+});
