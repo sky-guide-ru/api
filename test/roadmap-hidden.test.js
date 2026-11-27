@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import express from 'express';
 import { config } from '@sky-guide/core/config.js';
 import { pruneHidden, getHidden, setHidden, _resetHidden, GONE_MS } from '@sky-guide/core/roadmap/hidden.js';
 import { mountHiddenRoutes } from '../src/mount/roadmap-hidden.js';
 import { hasWeb, WEB_SRC } from './_web.js';
-const pruneClient = hasWeb ? (await import(path.join(WEB_SRC, 'hiddenPrune.js'))).pruneHidden : null;
+const pruneClient = hasWeb ? (await import(pathToFileURL(path.join(WEB_SRC, 'hiddenPrune.js')).href)).pruneHidden : null;
 
 config.dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-hidden-'));
 _resetHidden();
