@@ -204,6 +204,7 @@ export function createLeaderboard(o) {
       const sorted = [...best.values()].sort((a, c) => b.value(c) - b.value(a) || (a.name > c.name ? 1 : -1));
       const row = (e, i) => ({
         place: i + 1, name: e.name, uuid: e.uuid, profile: e.profile, mode: e.mode, coop: e.coop, rank: e.rank, guild: guildNow(e),
+        online: o.onlineOf?.(e.uuid) || null, // в сети ли — из недавней проверки при открытии профиля, без запросов
         value: b.value(e), nw: e.nw, level: e.level, cata: e.cata, cls: e.cls, slayerXp: e.slayerXp, slayers: e.slayers,
         skillAvg: e.skillAvg, at: e.at,
       });
