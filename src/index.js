@@ -51,6 +51,7 @@ import { mountGuideRoutes, guideList, guideOne } from './mount/guides.js';
 import { createSeo, jsonldScript, originOf, pingIndexNow, INDEXNOW_KEY } from './seo/index.js';
 import { createDiscordNews } from './discord-news.js';
 import { createDiscordBot, fileLinks } from './discord-bot/index.js';
+import { createDiscordEvents } from './discord-events.js';
 import { NEWS } from '@sky-guide/core/news/entries.js';
 import { enrichGuide, lexiconPhrases, refsData } from '@sky-guide/core/guides/refs.js';
 import { GUI_ITEMS } from '@sky-guide/core/lib/gui-items.js';
@@ -975,6 +976,16 @@ async function main() {
   } else if (process.env.DISCORD_NEWS_WEBHOOK) console.warn('[discord] DISCORD_NEWS_WEBHOOK не похож на адрес webhook Discord — новости в канал не отправляются');
   // Слэш-команды бота — в Discord, если их список изменился (нужен DISCORD_BOT_TOKEN)
   if (discordBot.enabled) setTimeout(() => discordBot.registerCommands().catch(e => console.warn('[discord-бот]', e.message)), 10_000).unref?.();
+  // События SkyBlock (Jacob, Dark Auction, мэр, Fire Sales, большие ивенты) — в свой канал с пингом ролей-подписок
+  // (DISCORD_EVENTS_WEBHOOK и DISCORD_EVENTS_ROLES в .env; что отправлено — data/discord-events.json). Hypixel лишний раз не спрашиваем
+  const discordEvents = createDiscordEvents({
+    webhook: process.env.DISCORD_EVENTS_WEBHOOK, roles: process.env.DISCORD_EVENTS_ROLES, siteUrl: publicConfig(process.env).siteUrl,
+    file: path.join(config.dataDir, 'discord-events.json'), translate: s => inLang('en', () => getTranslator().tr(s)),
+  });
+  if (discordEvents.enabled) {
+    setTimeout(() => discordEvents.tick(), 60_000).unref?.(); // к этому времени refreshMayor уже принёс выборы и Fire Sales
+    setInterval(() => discordEvents.tick(), 30_000).unref?.();
+  } else if (process.env.DISCORD_EVENTS_WEBHOOK) console.warn('[discord] DISCORD_EVENTS_WEBHOOK не похож на адрес webhook Discord — события в канал не отправляются');
   // Цены NPC и пороги коллекций — параллельно с профилем и ценами, а не перед ними: раньше каждый перезапуск
   // ждал эти два запроса (а при сбое Hypixel — их таймауты) до первого профиля. Пришли — пересчитываем советы
   Promise.allSettled([
