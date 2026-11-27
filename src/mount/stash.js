@@ -1,7 +1,10 @@
 // Адреса сервера для stash/index.js (расчёты — в @sky-guide/core)
 import { analyzeEssence, analyzeSackLadder, analyzeSacks } from '@sky-guide/core/stash/index.js';
+import { analyzeSell } from '@sky-guide/core/stash/sell.js';
+import { analyzeCraft } from '@sky-guide/core/stash/craft.js';
+import { getCart } from '@sky-guide/core/roadmap/cart.js';
 
-/** Мешки и эссенции игрока: { sacks(v), essence(v) } — для /api/sacks, /api/essence и /v1 (кэш общий) */
+/** Мешки, эссенции и «Что продать»: { sacks(v), essence(v), sell(v) } — для /api/sacks, /api/essence, /api/sell и /v1 (кэш общий) */
 export function createStash(deps) {
   // Готовый расчёт держим, пока не сменились профиль (новый объект member) или цены: страница спрашивает
   // мешки и эссенции при каждом обновлении, а считать их заново (рецепты, перки, подсказки по тексту) незачем
@@ -19,6 +22,19 @@ export function createStash(deps) {
     sacks(v) {
       const d = deps();
       const out = cached(v.member, 'sacks', d.pricesKey?.(), () => ({ ...analyzeSacks(v.member, d), ladder: analyzeSackLadder(v.member, { ...d, owned: d.owned?.(v.member) }) }));
+      return { status: 'ok', ...out, player: v.player?.name || null, self: !!v.self };
+    },
+    // «Что продать»: что лежит без дела и где выгоднее продать; без рынка (Ironman) — ещё «На что потратить» по рецептам плана
+    sell(v) {
+      const d = deps();
+      const m = v.member;
+      const roadmap = v.analysis?.roadmap || [];
+      const cartIds = Object.keys((m.uuid && m.profileId && getCart(`${m.uuid}:${m.profileId}`)?.custom) || {});
+      const out = cached(m, 'sell', `${d.pricesKey?.()}:${roadmap.length}:${cartIds.join(',')}`, () => {
+        const o = { ...d, roadmap, cartIds };
+        const r = analyzeSell(m, o);
+        return r.market ? r : { ...r, craft: analyzeCraft(m, o).items };
+      });
       return { status: 'ok', ...out, player: v.player?.name || null, self: !!v.self };
     },
     essence(v) {
@@ -42,7 +58,7 @@ export function mountStashRoutes(app, { getView, stash }) {
     if (!v?.member) { res.json({ status: 'error', error: v?.error || 'Профиль ещё не загружен' }); return null; }
     return v;
   };
-  for (const kind of ['sacks', 'essence']) {
+  for (const kind of ['sacks', 'essence', 'sell']) {
     app.get(`/api/${kind}`, async (req, res) => {
       const v = await view(req, res); if (!v) return;
       try { res.json(stash[kind](v)); } catch (e) { res.status(500).json({ status: 'error', error: e.message }); }
