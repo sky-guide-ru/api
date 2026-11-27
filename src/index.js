@@ -51,6 +51,8 @@ import { mountGuideRoutes, guideList, guideOne } from './mount/guides.js';
 import { createSeo, jsonldScript, originOf, pingIndexNow, INDEXNOW_KEY } from './seo/index.js';
 import { createDiscordNews } from './discord-news.js';
 import { mountDiscordLink, createLinkStore } from './discord-link.js';
+import { createDiscordBot } from './discord-bot/index.js';
+import { createDiscordEvents } from './discord-events.js';
 import { NEWS } from '@sky-guide/core/news/entries.js';
 import { enrichGuide, lexiconPhrases, refsData } from '@sky-guide/core/guides/refs.js';
 import { GUI_ITEMS } from '@sky-guide/core/lib/gui-items.js';
@@ -272,6 +274,22 @@ app.use('/v1', createV1({
     return { points: sliceRange(all, days * 24 * 3600_000), since: all[0]?.t || null, tracked: !personal && !!v.historyKey };
   },
 }));
+// Discord-бот (/profile, /price, /next): Discord шлёт команды на /discord/interactions — до входа, данные из общего кэша.
+// Без DISCORD_PUBLIC_KEY и DISCORD_APP_ID в .env выключен. Разные ники: 10 на человека и 60 на всех за 10 минут
+const botNickLimit = createGuestLimiter({ max: 10 }), botAllLimit = createGuestLimiter({ max: 60 });
+const discordBot = createDiscordBot({
+  env: process.env, site: () => publicConfig(process.env).siteUrl,
+  view: want => playerView(want), hidden: name => hiddenPlayers().has(String(name || '').toLowerCase()), open: () => auth.publicView,
+  summary: v => summarizeForCompare(v),
+  plan: v => ({ player: { name: v.player?.name }, profile: v.member?.profileName || null, updatedAt: v.updatedAt || 0,
+    steps: (v.analysis?.roadmap || []).filter(s => s.priority > 0).map(v1Step) }),
+  translate: (x, lang) => inLang(lang, () => translateDeep(x)),
+  search: (q, limit) => searchList(q, limit), quote: id => quoteOf(id),
+  linkOf: id => discordLinks.linkOf(id), linkPage: true, // привязки со страницы /discord (discord-link.js)
+  allowNick: (user, nick) => players.isOwner({ player: nick }) || (botNickLimit.allow(`u:${user}`, nick) && botAllLimit.allow('all', nick)),
+  commandsFile: path.join(config.dataDir, 'discord-commands.json'),
+});
+app.use(discordBot.router);
 app.use(auth.router); // вход: ник + пароль сайта (data/users.json) — до всех страниц и /api; req.sbUser — кто вошёл
 // Лимит запросов с одного адреса (владельцу не мешает): картинки — отдельно, их на странице сотни
 const IMG_API = /^\/(img|texture|skin|head|icon)s?\//;
@@ -960,6 +978,18 @@ async function main() {
     setTimeout(() => discordNews.tick(), 120_000).unref?.();
     setInterval(() => discordNews.tick(), 15 * 60_000).unref?.();
   } else if (process.env.DISCORD_NEWS_WEBHOOK) console.warn('[discord] DISCORD_NEWS_WEBHOOK не похож на адрес webhook Discord — новости в канал не отправляются');
+  // Слэш-команды бота — в Discord, если их список изменился (нужен DISCORD_BOT_TOKEN)
+  if (discordBot.enabled) setTimeout(() => discordBot.registerCommands().catch(e => console.warn('[discord-бот]', e.message)), 10_000).unref?.();
+  // События SkyBlock (Jacob, Dark Auction, мэр, Fire Sales, большие ивенты) — в свой канал с пингом ролей-подписок
+  // (DISCORD_EVENTS_WEBHOOK и DISCORD_EVENTS_ROLES в .env; что отправлено — data/discord-events.json). Hypixel лишний раз не спрашиваем
+  const discordEvents = createDiscordEvents({
+    webhook: process.env.DISCORD_EVENTS_WEBHOOK, roles: process.env.DISCORD_EVENTS_ROLES, siteUrl: publicConfig(process.env).siteUrl,
+    file: path.join(config.dataDir, 'discord-events.json'), translate: s => inLang('en', () => getTranslator().tr(s)),
+  });
+  if (discordEvents.enabled) {
+    setTimeout(() => discordEvents.tick(), 60_000).unref?.(); // к этому времени refreshMayor уже принёс выборы и Fire Sales
+    setInterval(() => discordEvents.tick(), 30_000).unref?.();
+  } else if (process.env.DISCORD_EVENTS_WEBHOOK) console.warn('[discord] DISCORD_EVENTS_WEBHOOK не похож на адрес webhook Discord — события в канал не отправляются');
   // Цены NPC и пороги коллекций — параллельно с профилем и ценами, а не перед ними: раньше каждый перезапуск
   // ждал эти два запроса (а при сбое Hypixel — их таймауты) до первого профиля. Пришли — пересчитываем советы
   Promise.allSettled([

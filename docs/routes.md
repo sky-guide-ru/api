@@ -233,3 +233,4 @@
 - `GET /robots.txt`
 - `GET /sitemap.xml`
 - `GET /terms`
+- `POST /discord/interactions`
