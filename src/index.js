@@ -742,7 +742,8 @@ mountCollectRoutes(app, { getUuid: async req => (await req.sbView()).member?.uui
 // Скрытые шаги плана: у вошедшего владельца профиля хранятся на сервере (видны на всех его устройствах)
 mountHiddenRoutes(app, { getView: req => req.sbView(), isGuest: req => !!req.sbGuest });
 // План покупок с правками игрока: убрать шаг, добавить свою вещь (у гостя список в браузере, сервер только считает)
-mountCartRoutes(app, { getView: req => req.sbView(), isGuest: req => !!req.sbGuest, price: buyPriceOf, name: id => itemName(id)?.replace(/§./g, '') || id });
+mountCartRoutes(app, { getView: req => req.sbView(), isGuest: req => !!req.sbGuest, price: buyPriceOf, name: id => itemName(id)?.replace(/§./g, '') || id,
+  items: () => neu.items, constants: () => neu.constants });
 // Чек-лист улучшений своих экземпляров предмета: /api/item/:id/upgrades (для выбранного игрока — своего или друга)
 mountNewsRoutes(app, { skyblockNews, // «Новости»: журнал изменений сайта, GET /api/news (записи — server/news/entries.js)
   textRefs: text => enrichGuide({ status: 'ok', sections: [{ kind: 'text', text }] }, { items: neu.items, constants: neu.constants, price: priceOf }).refs,
