@@ -986,6 +986,12 @@ async function main() {
   } else if (process.env.DISCORD_NEWS_WEBHOOK) console.warn('[discord] DISCORD_NEWS_WEBHOOK не похож на адрес webhook Discord — новости в канал не отправляются');
   // Слэш-команды бота — в Discord, если их список изменился (нужен DISCORD_BOT_TOKEN)
   if (discordBot.enabled) setTimeout(() => discordBot.registerCommands().catch(e => console.warn('[discord-бот]', e.message)), 10_000).unref?.();
+  // Сообщение с кнопкой «Верификация» в #verify: само ставится и держится последним (раз в 15 минут)
+  if (discordBot.enabled) {
+    const panel = () => discordBot.ensurePanel().catch(e => console.warn('[discord-бот] верификация:', e.message));
+    setTimeout(panel, 20_000).unref?.();
+    setInterval(panel, 15 * 60_000).unref?.();
+  }
   // События SkyBlock (Jacob, Dark Auction, мэр, Fire Sales, большие ивенты) — в свой канал с пингом ролей-подписок
   // (DISCORD_EVENTS_WEBHOOK и DISCORD_EVENTS_ROLES в .env; что отправлено — data/discord-events.json). Hypixel лишний раз не спрашиваем
   const discordEvents = createDiscordEvents({

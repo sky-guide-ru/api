@@ -137,20 +137,65 @@ export function createDiscordBot(o) {
     return { reply: { type: 5, data: { flags: EPHEMERAL } }, after: () => runLink(body, lang, name, nick) };
   }
 
-  /** Поставить сообщение с кнопками в канал; прошлое такое же сообщение бот удаляет (файл verifyFile) */
-  async function postPanel(body, lang) {
-    const l = T[lang].link, file = o.verifyFile, channel = String(body.channel_id || body.channel?.id || '');
-    if (!token || !/^\d{5,25}$/.test(channel)) return edit(body.token, { content: l.panelFail('no token') });
-    const auth = { 'Content-Type': 'application/json', Authorization: `Bot ${token}` };
-    const r = await doFetch(`${API}/channels/${channel}/messages`, { method: 'POST', headers: auth, body: JSON.stringify(verifyPanel(site())) });
-    if (!r.ok) return edit(body.token, { content: l.panelFail(r.status) });
-    let old = null;
-    try { old = file ? JSON.parse(fs.readFileSync(file, 'utf8')) : null; } catch { /* первое сообщение */ }
-    if (old?.channel && old?.message) await doFetch(`${API}/channels/${old.channel}/messages/${old.message}`, { method: 'DELETE', headers: auth }).catch(() => {});
+  // ---------- Сообщение с кнопкой верификации ----------
+  const botHeaders = () => ({ 'Content-Type': 'application/json', Authorization: `Bot ${token}` });
+  const readPanel = () => { try { return o.verifyFile ? JSON.parse(fs.readFileSync(o.verifyFile, 'utf8')) : null; } catch { return null; } };
+  const savePanel = v => { try { if (o.verifyFile) fs.writeFileSync(o.verifyFile, JSON.stringify(v)); } catch { /* в следующий раз поставим заново */ } };
+  const panelHash = () => commandsHash([verifyPanel(site())]);
+
+  /** Новое сообщение с кнопками в канал; прошлое такое же бот удаляет. → статус ответа Discord */
+  async function postPanelTo(channel) {
+    const r = await doFetch(`${API}/channels/${channel}/messages`, { method: 'POST', headers: botHeaders(), body: JSON.stringify(verifyPanel(site())) });
+    if (!r.ok) return r.status;
+    const old = readPanel();
+    if (old?.channel && old?.message) await doFetch(`${API}/channels/${old.channel}/messages/${old.message}`, { method: 'DELETE', headers: botHeaders() }).catch(() => {});
     let msg = null;
     try { msg = await r.json(); } catch { /* без id старое сообщение не удалить в следующий раз — не страшно */ }
-    try { if (file && msg?.id) fs.writeFileSync(file, JSON.stringify({ channel, message: msg.id, at: Date.now() })); } catch { /* не страшно: старое удалим руками */ }
-    return edit(body.token, { content: l.panelOk });
+    if (msg?.id) savePanel({ channel, message: msg.id, hash: panelHash(), at: Date.now() });
+    return r.status;
+  }
+
+  /** Канал верификации: DISCORD_VERIFY_CHANNEL_ID или текстовый канал сервера с «verify» в названии */
+  async function verifyChannel() {
+    const set = String(env.DISCORD_VERIFY_CHANNEL_ID || '').trim();
+    if (/^\d{5,25}$/.test(set)) return set;
+    const guild = String(env.DISCORD_GUILD_ID || '').trim();
+    if (!/^\d{5,25}$/.test(guild)) return null;
+    const r = await doFetch(`${API}/guilds/${guild}/channels`, { headers: botHeaders() });
+    if (!r.ok) return null;
+    const list = await r.json().catch(() => []);
+    return (Array.isArray(list) ? list : []).find(c => c.type === 0 && /verif/i.test(c.name || ''))?.id || null;
+  }
+
+  /**
+   * Сообщение с кнопкой всегда стоит в канале верификации последним: при запуске и потом раз в 15 минут.
+   * Нет сообщения или под ним появились другие — ставим заново (старое удаляем); поменялся текст — правим на месте.
+   */
+  async function ensurePanel() {
+    if (!enabled || !token || !o.link) return 'off';
+    const channel = await verifyChannel();
+    if (!channel) return 'no-channel';
+    const cur = readPanel();
+    if (cur?.channel === channel && cur?.message) {
+      const last = await doFetch(`${API}/channels/${channel}/messages?limit=1`, { headers: botHeaders() });
+      const top = last.ok ? (await last.json().catch(() => []))?.[0] : null;
+      if (top?.id === cur.message) {
+        if (cur.hash === panelHash()) return 'ok';
+        const r = await doFetch(`${API}/channels/${channel}/messages/${cur.message}`, { method: 'PATCH', headers: botHeaders(), body: JSON.stringify(verifyPanel(site())) });
+        if (r.ok) { savePanel({ ...cur, hash: panelHash(), at: Date.now() }); return 'edited'; }
+      }
+    }
+    const st = await postPanelTo(channel);
+    if (st >= 300) console.warn('[discord-бот] сообщение верификации не поставлено:', st);
+    return st < 300 ? 'posted' : 'failed';
+  }
+
+  /** /панель-верификации: то же сообщение в текущий канал (запасной путь) */
+  async function postPanel(body, lang) {
+    const l = T[lang].link, channel = String(body.channel_id || body.channel?.id || '');
+    if (!token || !/^\d{5,25}$/.test(channel)) return edit(body.token, { content: l.panelFail('no token') });
+    const st = await postPanelTo(channel);
+    return edit(body.token, { content: st < 300 ? l.panelOk : l.panelFail(st) });
   }
 
   function price(opts, lang) {
@@ -235,5 +280,5 @@ export function createDiscordBot(o) {
     return true;
   }
 
-  return { enabled, router, handle, registerCommands };
+  return { enabled, router, handle, registerCommands, ensurePanel };
 }
