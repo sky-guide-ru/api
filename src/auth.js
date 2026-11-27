@@ -225,8 +225,8 @@ const meValue = (u, local = false) => encodeURIComponent(JSON.stringify({ n: u.n
     res.set('Set-Cookie', clearCookies(req)).redirect(303, '/login');
   });
 
-  // Что гостю можно без входа: чтение страниц и /api, кроме советчика и аккаунта; из POST — только иконки, «Обновить» и «Убрать меня из рейтинга»
-  const GUEST_POST = new Set(['/api/icons', '/api/refresh', '/api/leaderboard/remove', '/api/feedback', '/api/survey/answer']);
+  // Что гостю можно без входа: чтение страниц и /api, кроме советчика и аккаунта; из POST — только иконки, «Обновить», отзыв и ответ на опрос
+  const GUEST_POST = new Set(['/api/icons', '/api/refresh', '/api/feedback', '/api/survey/answer']);
   function guestAllowed(req) {
     if (!publicView) return false;
     // Express сравнивает маршруты без учёта регистра (/api/Live = /api/live) — сравниваем так же
