@@ -174,7 +174,7 @@ export function mountDiscordLink(app, o) {
     const old = store.set(user.id, { uuid: mc.uuid, name: mc.name, at: clock(), nickSet: nickSet || (prev?.uuid === mc.uuid && !!prev?.nickSet) });
     for (const id of old) removeRole(id).catch(() => {}); // этот ник раньше был у другого Discord
     if (notMember) return { r: 'join', nick: mc.name };
-    return { r: role.ok ? 'ok' : 'norole', nick: mc.name };
+    return { r: role.ok ? 'ok' : 'norole', nick: mc.name, nickSet };
   }
 
   async function unlink(user) {
@@ -292,5 +292,6 @@ export function mountDiscordLink(app, o) {
     }
   });
 
-  return { enabled: cfg.enabled, store, _test: { link, unlink } };
+  // link/unlink — и для команд бота /link и /unlink (тот же Discord-пользователь, только без OAuth)
+  return { enabled: cfg.enabled, store, link, unlink, _test: { link, unlink } };
 }

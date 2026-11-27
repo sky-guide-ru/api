@@ -25,6 +25,19 @@ export const T = {
     bzBuy: 'Купить сразу', bzSell: 'Продать сразу', bzNet: 'после налога', bzWeek: 'За неделю', ahBin: 'Lowest BIN', ahSell: 'Продать за ~',
     ahLots: 'Лоты', ahSold: 'продано за 24 ч', change: 'Изменение', d1: 'за сутки', d7: 'за неделю', bazaar: 'Bazaar', ah: 'Auction House',
     soldFrom: { sales: 'по продажам', lots: 'по лотам', cap: 'не дороже лота' },
+    link: {
+      ok: (n, nick) => `✅ Ник **${n}** привязан: выдана роль Verified${nick ? ', ник на сервере — как в игре' : ''}.`,
+      norole: n => `Ник **${n}** привязан, но роль выдать не получилось. Напиши модераторам.`,
+      join: n => `Ник **${n}** привязан. Зайди на сервер Sky Guide и повтори команду, чтобы получить роль.`,
+      mismatch: (n, set, you) => (set ? `В Hypixel у **${n}** указан Discord «${set}», а у тебя — «${you}».` : `У **${n}** в Hypixel не указан Discord.`),
+      how: 'Как указать: в лобби Hypixel открой профиль (голова в хотбаре) → Social Media → Discord и отправь в чат свой ник Discord. Через минуту повтори команду.',
+      nonick: n => `Ника «${n}» нет в Minecraft или на Hypixel. Проверь, как он пишется в игре.`,
+      error: 'Не получилось привязать ник. Попробуй ещё раз позже.',
+      rate: 'Слишком много попыток. Подожди 10 минут.',
+      unlinked: n => `Ник **${n}** отвязан, роль Verified снята.`,
+      none: 'К твоему Discord не привязан ник.',
+      off: 'Привязка ника сейчас не работает.',
+    },
   },
   en: {
     level: 'SkyBlock Level', networth: 'Networth', coins: 'Coins', skillAvg: 'Skill Average', cata: 'Catacombs', slayers: 'Slayers',
@@ -43,6 +56,19 @@ export const T = {
     bzBuy: 'Instant buy', bzSell: 'Instant sell', bzNet: 'after tax', bzWeek: 'Weekly volume', ahBin: 'Lowest BIN', ahSell: 'Sells for ~',
     ahLots: 'Listings', ahSold: 'sold in 24h', change: 'Change', d1: '24h', d7: '7d', bazaar: 'Bazaar', ah: 'Auction House',
     soldFrom: { sales: 'by sales', lots: 'by listings', cap: 'capped by lowest BIN' },
+    link: {
+      ok: (n, nick) => `✅ **${n}** is linked: you have the Verified role${nick ? ' and your server nickname matches the game' : ''}.`,
+      norole: n => `**${n}** is linked, but the role could not be given. Please contact the moderators.`,
+      join: n => `**${n}** is linked. Join the Sky Guide server and run the command again to get the role.`,
+      mismatch: (n, set, you) => (set ? `On Hypixel, **${n}** has Discord “${set}”, but you are “${you}”.` : `**${n}** has no Discord set on Hypixel.`),
+      how: 'To set it: in a Hypixel lobby open your profile (head in the hotbar) → Social Media → Discord and send your Discord username in chat. Try again in a minute.',
+      nonick: n => `“${n}” was not found in Minecraft or on Hypixel. Check the spelling.`,
+      error: 'Could not link the nickname. Please try again later.',
+      rate: 'Too many attempts. Please wait 10 minutes.',
+      unlinked: n => `**${n}** is unlinked, the Verified role is removed.`,
+      none: 'No nickname is linked to your Discord.',
+      off: 'Nickname linking is not available right now.',
+    },
   },
 };
 
@@ -166,6 +192,22 @@ export function priceMessage(item, q, { lang = 'ru', site } = {}) {
     components: linkRow([{ label: t.openItem, url: links.item(item.id), emoji: '🌐' }]),
     allowed_mentions: { parse: [] },
   };
+}
+
+/** Итог /link и /unlink (результаты link()/unlink() из discord-link.js) → текст */
+export function linkText(res, lang) {
+  const t = T[lang], l = t.link, n = esc(res?.nick || '');
+  switch (res?.r) {
+    case 'ok': return l.ok(n, res.nickSet);
+    case 'norole': return l.norole(n);
+    case 'join': return l.join(n);
+    case 'mismatch': return `${l.mismatch(n, esc(res.set || ''), esc(res.you || ''))}\n${l.how}`;
+    case 'nonick': return l.nonick(n);
+    case 'busy': return t.hypixel;
+    case 'unlinked': return l.unlinked(n);
+    case 'none': return l.none;
+    default: return l.error;
+  }
 }
 
 /** Ошибка загрузки профиля (коды из core/players.js) → понятный текст */

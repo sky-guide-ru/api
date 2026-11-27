@@ -83,7 +83,7 @@ import { createAhList, AH_SORTS } from '@sky-guide/core/market/ah-list.js';
 import { displayName, itemCategory, itemRarity } from '@sky-guide/core/names.js';
 import { categoryKey } from '@sky-guide/core/market/categories.js';
 import { refreshWiki } from '@sky-guide/core/wiki/watch.js';
-import { securityHeaders, apiRateLimit, createConnLimiter } from './lib/guard.js';
+import { securityHeaders, apiRateLimit, createConnLimiter, createRateLimiter } from './lib/guard.js';
 import { createMonitor, beaconHandler } from './monitor/index.js';
 import { createGeo } from './monitor/geo.js';
 import { sendMail, mailerInfo } from './lib/mailer.js';
@@ -130,7 +130,7 @@ mountPublicRoutes(app, { env: process.env, seo, origin: siteOrigin, indexNowKey:
 mountLegalRoutes(app, { env: process.env, isOwner: req => auth.isOwnerRequest(req) });
 // Привязка Discord к нику (роль Verified на сервере): /discord, тоже до входа. Привязки — data/discord-links.json, наружу не отдаются
 const discordLinks = createLinkStore(path.join(config.dataDir, 'discord-links.json'));
-mountDiscordLink(app, { env: process.env, store: discordLinks, siteUrl: publicConfig(process.env).siteUrl, clientIp: auth.clientIp, resolveUuid, getPlayer });
+const discordLinking = mountDiscordLink(app, { env: process.env, store: discordLinks, siteUrl: publicConfig(process.env).siteUrl, clientIp: auth.clientIp, resolveUuid, getPlayer });
 app.get(['/og.png', '/og-en.png'], (req, res) => res.set('Cache-Control', 'public, max-age=86400').type('image/png').sendFile(path.join(config.webDist, req.path.slice(1))));
 app.get('/favicon.svg', (req, res) => res.set('Cache-Control', 'public, max-age=86400').type('image/svg+xml').sendFile(path.join(config.webDist, 'favicon.svg')));
 // Аватарки открыты и до входа (страница входа); незнакомый ник сервер скачивает с mc-heads.net — поэтому свой лимит
@@ -277,6 +277,7 @@ app.use('/v1', createV1({
 // Discord-бот (/profile, /price, /next): Discord шлёт команды на /discord/interactions — до входа, данные из общего кэша.
 // Без DISCORD_PUBLIC_KEY и DISCORD_APP_ID в .env выключен. Разные ники: 10 на человека и 60 на всех за 10 минут
 const botNickLimit = createGuestLimiter({ max: 10 }), botAllLimit = createGuestLimiter({ max: 60 });
+const botLinkLimit = createRateLimiter({ max: 5, windowMs: 10 * 60_000 });
 const discordBot = createDiscordBot({
   env: process.env, site: () => publicConfig(process.env).siteUrl,
   view: want => playerView(want), hidden: name => hiddenPlayers().has(String(name || '').toLowerCase()), open: () => auth.publicView,
@@ -286,6 +287,8 @@ const discordBot = createDiscordBot({
   translate: (x, lang) => inLang(lang, () => translateDeep(x)),
   search: (q, limit) => searchList(q, limit), quote: id => quoteOf(id),
   linkOf: id => discordLinks.linkOf(id), linkPage: true, // привязки со страницы /discord (discord-link.js)
+  // /link и /unlink в Discord — та же привязка, что на /discord; 5 попыток за 10 минут, чтобы не тратить лимит Hypixel
+  ...(discordLinking.enabled ? { link: (u, n) => discordLinking.link(u, n), unlink: u => discordLinking.unlink(u), allowLink: id => botLinkLimit.hit(id) === 0 } : {}),
   allowNick: (user, nick) => players.isOwner({ player: nick, profile: '' }) || (botNickLimit.allow(`u:${user}`, nick) && botAllLimit.allow('all', nick)),
   commandsFile: path.join(config.dataDir, 'discord-commands.json'),
 });
