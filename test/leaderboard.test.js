@@ -35,8 +35,20 @@ test('рейтинг: тег гильдии у ника, без названия
   b.record(view('Steve', 'aaa', { guild: { name: 'Skyblock Kings', tag: 'SBK', tagColor: 'DARK_AQUA', members: 98 } }));
   b.record(view('Alex', 'bbb', { nw: 2 }));
   const r = b.top('networth');
-  assert.deepEqual(r.rows.find(x => x.name === 'Steve').guild, { tag: 'SBK', color: 'DARK_AQUA' });
+  assert.deepEqual(r.rows.find(x => x.name === 'Steve').guild, { tag: 'SBK', name: 'Skyblock Kings', color: 'DARK_AQUA' });
   assert.equal(r.rows.find(x => x.name === 'Alex').guild, null);
+});
+
+test('рейтинг: гильдия без тега — с названием; свежая гильдия из кэша сайта сразу', () => {
+  const known = new Map([['bbb', { name: 'ShikanokoNoko', tag: null }], ['ccc', null]]);
+  const b = make({ guildOf: u => known.get(u) });
+  b.record(view('Steve', 'aaa', { guild: { name: 'Skyblock Kings', tag: 'SBK' } }));
+  b.record(view('Alex', 'bbb', { nw: 2 }));
+  b.record(view('Jeb', 'ccc', { nw: 3, guild: { name: 'Old', tag: 'OLD' } }));
+  const g = Object.fromEntries(b.top('networth').rows.map(x => [x.name, x.guild]));
+  assert.deepEqual(g.Steve, { tag: 'SBK', name: 'Skyblock Kings', color: null }, 'не спрашивали — как при записи');
+  assert.deepEqual(g.Alex, { tag: null, name: 'ShikanokoNoko', color: null });
+  assert.equal(g.Jeb, null, 'вышел из гильдии');
 });
 
 test('рейтинг богатства: по убыванию, по одной строке на игрока (лучший профиль)', () => {

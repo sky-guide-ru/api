@@ -5,7 +5,7 @@ import { PARTS, statePart, partVersions, lightAnalysis, lightMember } from '@sky
 import { createStatus } from './status.js';
 import { keyedCallsRecent, keyedPause, keyUsage, resolveUuid } from '@sky-guide/core/hypixel.js';
 import { rankFor } from '@sky-guide/core/rank.js';
-import { guildFor } from '@sky-guide/core/guild.js';
+import { guildFor, peekGuild } from '@sky-guide/core/guild.js';
 import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -319,7 +319,7 @@ function excludedFromStats({ uuid, name, profileId }) {
   if (hide && id) addBlocked(id);
   return !!hide;
 }
-const board = createLeaderboard({ file: path.join(config.dataDir, 'leaderboard.json'), isExcluded: boardFilter.isExcluded });
+const board = createLeaderboard({ file: path.join(config.dataDir, 'leaderboard.json'), isExcluded: boardFilter.isExcluded, guildOf: peekGuild });
 // Свой основной профиль владельца обновляет state.js, а не players.js — кладём его в рейтинг так же, как чужие.
 // Только когда цены загружены: иначе богатство = одни монеты
 const recordOwner = () => { if (state.status === 'ok' && state.member && pricesReady()) board.record({ player: state.player, member: state.member, analysis: state.analysis, updatedAt: state.updatedAt }); };
