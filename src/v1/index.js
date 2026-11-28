@@ -10,7 +10,7 @@
 import express from 'express';
 import { createRateLimiter } from '../lib/guard.js';
 
-export const V1_VERSION = '1.4.0';
+export const V1_VERSION = '1.5.0';
 const FLIPS = ['bazaar', 'craft', 'forge', 'npc', 'snipes'];
 // Разделы игрока — те же расчёты, что страницы сайта
 export const SECTIONS = ['gear', 'progress', 'pets', 'map', 'collections', 'minions', 'museum', 'sacks', 'essence', 'bank', 'bits', 'maxwell', 'guides'];
@@ -41,7 +41,7 @@ const PLAYER_ERRORS = {
  *   players: { view({ player, profile }), hidden(name) }; summary(v), plan(v), money(v);
  *   accessories(v, q), missing(v, q), networth(v, q), upgrades(v, id) — null, если у профиля нет этих данных;
  *   auctions(v) — свои лоты Auction House и ставки (async);
- *   calendar(year), leaderboard(q), guides: { list(), get(id) }, quotes(ids), trend(id), movers(period), crops(q), image(id) → png;
+ *   calendar(year), miningEvents() → { at, islands, fiesta } (async), leaderboard(q), guides: { list(), get(id) }, quotes(ids), trend(id), movers(period), crops(q), image(id) → png;
  *   section(name, v, q) для SECTIONS, guide(id, v), history(v, days)
  */
 export function createV1(d) {
@@ -152,6 +152,10 @@ export function createV1(d) {
     res.json({ kind, items: d.market.flips(kind, { limit: int(req.query.limit, 40, 1, 200), max: req.query.max ? Number(req.query.max) : Infinity }) });
   });
   r.get('/calendar', open, (req, res) => { cache(res, 60); res.json(d.calendar(req.query.year)); });
+  r.get('/mining-events', open, async (req, res) => {
+    const v = await d.miningEvents().catch(() => null);
+    cache(res, 30); res.json(v || { at: null, islands: [] });
+  });
   r.get('/leaderboard', open, (req, res) => {
     cache(res, 60);
     res.json(d.leaderboard({ board: String(req.query.board || 'networth'), mode: String(req.query.mode || 'all'), limit: int(req.query.limit, 100, 1, 100), find: String(req.query.find || '').slice(0, 36) }));

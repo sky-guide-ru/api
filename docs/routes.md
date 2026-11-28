@@ -154,6 +154,7 @@
 - `GET /v1/market/crops`
 - `GET /v1/market/movers`
 - `GET /v1/market/trend/:id`
+- `GET /v1/mining-events`
 - `GET /v1/news`
 - `GET /v1/players/:name/profiles`
 - `GET /v1/players/:name/profiles/:profile/accessories`
