@@ -225,7 +225,7 @@ async function miningEventsNow() {
 const museumDeps = () => ({ constants: neu.constants, items: neu.items, price: priceOf, name: id => itemName(id) });
 const stash = createStash(() => ({ pricesKey: () => `${prices.bazaarAt}:${prices.binAt}`, constants: neu.constants, price: priceOf, buy: buyPriceOf, name: id => itemName(id), bazaar: id => prices.bazaar.get(id) || null, npc: id => npcPrices.get(id) || 0, owned: collectOwned, items: neu.items, whereToGet: id => getItemRu(id)?.whereToGet || [],
   bin: id => prices.bin.get(id) || null, sold: id => soldStats(prices.sold, id), props: id => itemProps(id, { bazaar: prices.bazaar.has(id) }),
-  textRefs: textRefsOf }));
+  quote: quoteOf, value: itemValue, textRefs: textRefsOf }));
 const collectionDeps = () => ({ items: neu.items });
 const minionDeps = m => {
   const owned = collectOwned(m);
@@ -294,6 +294,7 @@ app.use('/v1', createV1({
       case 'museum': return museumView(v, museumDeps);
       case 'sacks': return stash.sacks(v);
       case 'essence': return stash.essence(v);
+      case 'my-items': return stash.mine(v);
       case 'bank': return wealth.bank(m);
       case 'bits': return wealth.bits(m, q);
       case 'maxwell': return wealth.maxwell(m);

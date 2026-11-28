@@ -10,10 +10,10 @@
 import express from 'express';
 import { createRateLimiter } from '../lib/guard.js';
 
-export const V1_VERSION = '1.6.0';
+export const V1_VERSION = '1.7.0';
 const FLIPS = ['bazaar', 'craft', 'forge', 'npc', 'snipes'];
 // Разделы игрока — те же расчёты, что страницы сайта
-export const SECTIONS = ['gear', 'progress', 'pets', 'map', 'collections', 'minions', 'museum', 'sacks', 'essence', 'bank', 'bits', 'maxwell', 'guides'];
+export const SECTIONS = ['gear', 'progress', 'pets', 'map', 'collections', 'minions', 'museum', 'sacks', 'essence', 'my-items', 'bank', 'bits', 'maxwell', 'guides'];
 const RANGES = { '1d': 1, '7d': 7, '30d': 30, '365d': 365, all: 0 };
 const GUIDE_ID = /^[a-z0-9-]{1,40}$/;
 const NICK = /^[A-Za-z0-9_]{1,16}$/;
