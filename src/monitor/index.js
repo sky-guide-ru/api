@@ -12,6 +12,9 @@ const MIN = 60_000, HOUR = 60 * MIN, DAY = 24 * HOUR;
 export const LOAD_EDGES = [300, 600, 1000, 1500, 2500, 4000, 7000]; // мс; последняя корзина — «дольше 7 с»
 const KEEP_DAYS = 90, MAX_GROUPS = 300, GROUP_TTL = 30 * DAY, ALERT_EVERY = 3 * HOUR;
 const BOT_UA = /bot|crawl|spider|slurp|headless|lighthouse|preview|facebookexternalhit|curl|wget|python|node-fetch|axios|go-http|java\//i;
+// Подвисания страницы у посетителей (из браузера, задачи дольше 0,1 с): корзины самого долгого подвисания за открытие раздела
+export const JANK_EDGES = [200, 300, 500, 1000, 2000]; // мс; первая корзина — до 0,2 с, последняя — дольше 2 с
+const emptyJank = () => ({ mobile: { secs: 0, n: 0, ms: 0, reports: 0, worst: JANK_EDGES.map(() => 0).concat(0) }, desktop: { secs: 0, n: 0, ms: 0, reports: 0, worst: JANK_EDGES.map(() => 0).concat(0) }, sections: {} });
 const MOBILE_UA = /Mobi|Android|iPhone|iPad|iPod/i;
 const MAX_KEYS = 100; // потолок разных меток utm за день: адрес с метками может придумать кто угодно
 
@@ -89,7 +92,7 @@ function emptyDay(day) {
   return { day, views: 0, visitors: 0, sections: {}, refs: {}, devices: { mobile: 0, desktop: 0 }, who: { guest: 0, user: 0 }, langs: { ru: 0, en: 0 },
     countries: {}, blangs: {}, utm: {}, browsers: {}, oses: {}, entries: {}, hours: Array(24).fill(0),
     load: { mobile: LOAD_EDGES.map(() => 0).concat(0), desktop: LOAD_EDGES.map(() => 0).concat(0) },
-    nicksN: 0, errors: { client: 0, server: 0, api: 0 }, s5xx: 0 };
+    nicksN: 0, errors: { client: 0, server: 0, api: 0 }, s5xx: 0, jank: emptyJank() };
 }
 
 /** Перцентиль по корзинам: верхняя граница корзины, где набралась доля p */
@@ -108,6 +111,23 @@ const sumMaps = (list, f) => list.reduce((acc, d) => { for (const [k, v] of Obje
 // в старых файлах дня был список ников — считаем по нему
 const nickCount = d => (typeof d.nicksN === 'number' ? d.nicksN : Object.keys(d.nicks || {}).length + (d.nicksOver || 0));
 const sumArr = (list, f) => list.reduce((acc, d) => f(d).map((v, i) => (acc[i] || 0) + v), []);
+
+/** Подвисания за период: на ПК и телефоне — подвисаний в минуту, доля открытий раздела с подвисанием дольше 0,5 с, разделы */
+function sumJank(list) {
+  const out = {};
+  for (const dev of ['mobile', 'desktop']) {
+    const ds = list.map(d => d.jank?.[dev]).filter(Boolean);
+    const secs = ds.reduce((a, d) => a + d.secs, 0), n = ds.reduce((a, d) => a + d.n, 0), reports = ds.reduce((a, d) => a + d.reports, 0);
+    const worst = ds.reduce((acc, d) => d.worst.map((v, i) => (acc[i] || 0) + v), []);
+    const over500 = worst.slice(JANK_EDGES.indexOf(500) + 1).reduce((a, b) => a + b, 0);
+    out[dev] = { minutes: Math.round(secs / 60), n, perMin: secs ? Math.round(n / secs * 600) / 10 : null, avgMs: n ? Math.round(ds.reduce((a, d) => a + d.ms, 0) / n) : null, reports, over500 };
+  }
+  const secs = {};
+  for (const d of list) for (const [k, [s, n]] of Object.entries(d.jank?.sections || {})) { secs[k] ||= [0, 0]; secs[k][0] += s; secs[k][1] += n; }
+  // Разделы, где подвисает чаще всего (подвисаний в минуту), — только если раздел был открыт хотя бы 10 минут в сумме
+  out.sections = Object.entries(secs).filter(([, [s]]) => s >= 600).map(([k, [s, n]]) => [k, Math.round(n / s * 600) / 10, Math.round(s / 60)]).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  return out;
+}
 
 export function createMonitor({
   dataDir, tz = 'Europe/Moscow', clock = () => Date.now(),
@@ -222,6 +242,33 @@ export function createMonitor({
     }
     dirty = true;
     return true;
+  }
+
+  /** Подвисания из браузера: { раздел: [секунд открыт, подвисаний, самое долгое мс, всего мс] }. Владелец, боты и «Не отслеживать» не считаются */
+  function jank(rows, who) {
+    rotate();
+    if (who.owner || BOT_UA.test(who.ua || '') || !rows || typeof rows !== 'object') return false;
+    const dev = MOBILE_UA.test(who.ua || '') ? 'mobile' : 'desktop';
+    cur.jank ||= emptyJank();
+    const d = cur.jank[dev];
+    let any = false;
+    for (const [p, r] of Object.entries(rows).slice(0, 30)) {
+      if (!Array.isArray(r)) continue;
+      // Секунды — до получаса за запись (браузер шлёт не реже раза в 5 минут), подвисаний — до 300
+      const secs = Math.min(1800, Math.max(0, Math.round(Number(r[0]) || 0)));
+      const n = Math.min(300, Math.max(0, Math.round(Number(r[1]) || 0)));
+      const worst = n ? Math.min(60_000, Math.max(0, Math.round(Number(r[2]) || 0))) : 0;
+      const ms = n ? Math.min(n * 60_000, Math.max(worst, Math.round(Number(r[3]) || 0))) : 0;
+      if (!secs && !n) continue;
+      const sec = /^[a-z0-9-]{1,24}$/.test(p) ? p : 'other';
+      d.secs += secs; d.n += n; d.ms += ms; d.reports++;
+      if (n) { const i = JANK_EDGES.findIndex(e => worst <= e); d.worst[i < 0 ? JANK_EDGES.length : i]++; }
+      const sr = cur.jank.sections[sec] || (Object.keys(cur.jank.sections).length < MAX_KEYS ? (cur.jank.sections[sec] = [0, 0]) : null);
+      if (sr) { sr[0] += secs; sr[1] += n; }
+      any = true;
+    }
+    if (any) dirty = true;
+    return any;
   }
 
   /** Открыли ник: считаем, сколько разных ников открыли за день. Владелец, его кооп, друзья и скрытые не считаются */
@@ -373,6 +420,7 @@ export function createMonitor({
       langs: { ru: list.reduce((a, d) => a + (d.langs?.ru || 0), 0), en: list.reduce((a, d) => a + (d.langs?.en || 0), 0) },
       countries: top(sumMaps(list, d => d.countries), 20), blangs: top(sumMaps(list, d => d.blangs), 12), utm: top(sumMaps(list, d => d.utm), 15),
       load: Object.fromEntries(['mobile', 'desktop'].map(k => { const b = sumArr(list, d => d.load[k]); return [k, { p50: percentile(b, 0.5), p75: percentile(b, 0.75), n: b.reduce((x, y) => x + y, 0) }]; })),
+      jank: sumJank(list),
       // За период — сумма по дням: один ник в разные дни считается в каждом (связать дни нельзя)
       nicks: { distinct: list.reduce((a, d) => a + nickCount(d), 0) },
       errors: { client: list.reduce((a, d) => a + d.errors.client, 0), server: list.reduce((a, d) => a + d.errors.server, 0), api: list.reduce((a, d) => a + (d.errors.api || 0), 0) }, s5xx: list.reduce((a, d) => a + d.s5xx, 0),
@@ -428,6 +476,7 @@ export function createMonitor({
       `Просмотры разделов: ${ru(s.views)}`,
       `С телефона: ${s.visitors ? Math.round(s.devices.mobile / s.visitors * 100) : 0}% · вошедших: ${s.who.user}`,
       `Загрузка (у половины): ПК ${sec(s.load.desktop.p50)}, телефон ${sec(s.load.mobile.p50)}`,
+      (s.jank.desktop.minutes || s.jank.mobile.minutes) ? `Подвисания дольше 0,1 с (в минуту): ПК ${s.jank.desktop.perMin ?? '—'}, телефон ${s.jank.mobile.perMin ?? '—'}${s.jank.sections.length ? ` · чаще всего: ${s.jank.sections.slice(0, 3).map(([k, v]) => `${k} ${v}`).join(', ')}` : ''}` : null,
       s.sections.length ? `Разделы: ${s.sections.slice(0, 6).map(([k, v]) => `${k} ${v}`).join(', ')}` : null,
       `Версия сайта: русская ${s.langs.ru}, английская ${s.langs.en}`,
       s.countries.length ? `Страны: ${s.countries.slice(0, 6).map(([k, v]) => `${k} ${v}`).join(', ')}` : null,
@@ -455,7 +504,7 @@ export function createMonitor({
   /** Посетители, открытые ники и языки за день (для расчёта «запросов к Hypixel на посетителя») */
   function dayStats(k) { rotate(); const d = loadDay(k); return { visitors: d.visitors, nicks: nickCount(d), langs: { ru: d.langs?.ru || 0, en: d.langs?.en || 0 } }; }
 
-  return { view, nick, dayStats, clientError, serverError, track5xx, errorHandler, check, summary, resolve, digestText, flush, start, stop, alert };
+  return { view, jank, nick, dayStats, clientError, serverError, track5xx, errorHandler, check, summary, resolve, digestText, flush, start, stop, alert };
 }
 
 /**
@@ -484,6 +533,7 @@ export function beaconHandler(monitor, { clientIp, isOwner, build = () => '', co
     }
     for (const e of events) {
       if (e.t === 'view') monitor.view({ section: String(e.p || ''), ref: typeof e.r === 'string' ? e.r.slice(0, 300) : '', ms: e.ms, dnt: !!e.dnt, lang: e.l === 'en' ? 'en' : 'ru', utm: typeof e.u === 'string' ? e.u.slice(0, 500) : '' }, { ...who, guest: !!e.g });
+      else if (e.t === 'jank' && !e.dnt) monitor.jank(e.s, who);
       else if (e.t === 'err') monitor.clientError({ msg: String(e.m || '').slice(0, 500), stack: String(e.s || '').slice(0, 3000), section: String(e.p || '').slice(0, 24), kind: e.k, build: build() }, who);
     }
   };
