@@ -116,7 +116,9 @@ app.use(langMiddleware()); // английская версия (/en/): язык
 const apiKeys = createKeyStore({ dataDir: config.dataDir });
 const auth = createAuth(process.env, { dataDir: config.dataDir, apiKeys });
 // Поиск и нейросети: обычные адреса открытых разделов (/guides/fishing, /item/HYPERION) с готовым текстом (server/seo)
-const guideDeps = { priceOf, priceInfo, itemName: id => itemName(id)?.replace(/§./g, ''), get constants() { return neu.constants; }, get items() { return neu.items; } };
+// market — живые цены для гайда The Forge (выгодные рецепты), collections — пороги коллекций для «Requires: Mithril X»
+const guideDeps = { priceOf, priceInfo, itemName: id => itemName(id)?.replace(/§./g, ''), get constants() { return neu.constants; }, get items() { return neu.items; },
+  get market() { return moneyMod.marketCtx(); }, get collections() { return moneyMod.craftCollections; } };
 // Лор питомцев — с числами для 100 уровня, как на самой странице, а не с {STRENGTH} и {0}
 const seoLore = (id, lore) => (lore && /;\d$/.test(id) ? fillPetLore(id, '', lore, neu.constants?.petnums).lore : lore);
 const seo = createSeo({
