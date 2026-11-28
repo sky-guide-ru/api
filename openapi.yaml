@@ -1475,6 +1475,22 @@ components:
         v: { type: number, description: Версия словаря (меняется с обновлением базы предметов) }
         ready: { type: boolean, description: false — база предметов ещё грузится, словарь неполный }
         phrases: { type: object, additionalProperties: { type: string } }
+        warps:
+          type: object
+          description: |
+            Телепорты `/warp`: ключ — имя варпа (и синонимы). `rarity` — `free` (открыт всем), `RARE` (свиток, любой игрок)
+            или `EPIC` (свиток, только MVP+). `how` — где взять свиток, `via` — главный варп острова и расстояние пешком, `route` — дорога без свитка.
+          additionalProperties:
+            type: object
+            required: [warp, place, rarity]
+            properties:
+              warp: { type: string }
+              place: { type: string }
+              rarity: { type: string, enum: [free, RARE, EPIC] }
+              scroll: { type: string }
+              how: { type: string }
+              via: { type: object, properties: { warp: { type: string }, dist: { type: number } } }
+              route: { type: string }
 
     News:
       type: object
