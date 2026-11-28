@@ -33,6 +33,7 @@
 - `GET /api/museum`
 - `GET /api/museum/item/:id`
 - `GET /api/my-auctions`
+- `GET /api/my-items`
 - `GET /api/news`
 - `GET /api/news/latest`
 - `GET /api/packs`
@@ -180,6 +181,7 @@
 - `GET /v1/players/:name/profiles/:profile/map`
 - `GET /v1/players/:name/profiles/:profile/maxwell`
 - `GET /v1/players/:name/profiles/:profile/minions`
+- `GET /v1/players/:name/profiles/:profile/my-items`
 - `GET /v1/players/:name/profiles/:profile/money`
 - `GET /v1/players/:name/profiles/:profile/museum`
 - `GET /v1/players/:name/profiles/:profile/networth`

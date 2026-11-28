@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Sky Guide API
-  version: 1.6.0
+  version: 1.7.0
   summary: Предметы, рынок и расчёты по Hypixel SkyBlock на русском и английском
   description: |
     Открытый API сайта [sky-guide.ru](https://sky-guide.ru). Все ответы — расчёты и переводы Sky Guide,
@@ -967,6 +967,30 @@ paths:
       responses:
         '200':
           description: Мешки
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Section' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NoKey' }
+        '403': { $ref: '#/components/responses/BadKey' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/Rate' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /v1/players/{name}/profiles/{profile}/my-items:
+    get:
+      tags: [Игроки]
+      operationId: getPlayerItems
+      summary: Твои вещи
+      description: 'Вещи без дела, которые можно продать (с причиной и ценой после налога), как изменились цены вещей игрока за сутки и неделю и самое дорогое в мешках.'
+      security: [{ ApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Nick'
+        - $ref: '#/components/parameters/Profile'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Твои вещи
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Section' }

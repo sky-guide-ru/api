@@ -18,6 +18,19 @@ export function guideOne(id, m, a, deps) {
   return m.guest ? forGuest(g) : g;
 }
 
+// Список собирает все гайды целиком (~100 мс CPU), а открывают его часто: один и тот же ответ на разбор игрока
+// держим минуту. Тот же объект ответа — и английский перевод берётся из памяти, а не делается заново
+const GUEST = {};
+const listMemo = new WeakMap();
+function cachedList(m, a, deps, clock = Date.now) {
+  const key = a && Object.keys(a).length ? a : m || GUEST;
+  const hit = listMemo.get(key), now = clock();
+  if (hit && hit.m === m && now - hit.at < 60_000) return hit.out;
+  const out = guideList(m, a, deps);
+  listMemo.set(key, { m, at: now, out });
+  return out;
+}
+
 export function mountGuideRoutes(app, { getView, getMember, getAnalysis, deps = {} }) {
   const view = async req => {
     if (getView) { const out = {}; const m = await loadMember({ sbView: () => getView(req) }, out); return { m, a: out.view?.analysis || {}, out }; }
@@ -25,7 +38,7 @@ export function mountGuideRoutes(app, { getView, getMember, getAnalysis, deps = 
   };
   app.get('/api/guides', async (req, res) => {
     const { m, a } = await view(req);
-    res.json(guideList(m, a, deps));
+    res.json(cachedList(m, a, deps));
   });
   app.get('/api/guides/:id', async (req, res) => {
     const { m, a, out } = await view(req);
