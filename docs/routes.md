@@ -77,6 +77,7 @@
 - `POST /api/admin/feedback/:id/resend`
 - `POST /api/admin/feedback/:id/status`
 - `POST /api/admin/monitor/resolve`
+- `POST /api/admin/monitor/test-discord`
 - `POST /api/admin/monitor/test-mail`
 
 ## /api/docs

@@ -3,7 +3,8 @@
 // IP не сохраняется: уникальный посетитель = хеш(IP + браузер + соль дня), соль меняется каждые сутки.
 // Страна — по офлайн-базе (geo.js) в момент захода, язык браузера — из Accept-Language, метки utm — из адреса входа;
 // всё это только прибавляет +1 к дневному счётчику («RU: 12»), отдельных записей о посетителях нет.
-// Ошибки браузера и сервера группируются по отпечатку (текст + место). Тревоги и сводка — письмом владельцу.
+// Ошибки браузера и сервера группируются по отпечатку (текст + место). Тревоги и сводка — письмом владельцу
+// и в закрытый канал Discord (notify), если он настроен; скорость и нагрузка — в сводку из perf.js (digestExtra).
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -134,7 +135,10 @@ export function createMonitor({
   sendMail = async () => false, mailInfo = () => ({ configured: false }),
   apis = () => null, ai = () => null, deployLog = () => ({ events: [] }), siteUrl = '',
   excludedNick = () => false, uptimeStart = clock(),
+  notify = null, digestExtra = () => [],
 } = {}) {
+  // notify: { enabled, send({ title, text, kind }) } — Discord (monitor/discord.js); без него — только почта
+  const notifyOn = () => !!notify?.enabled;
   const dir = path.join(dataDir, 'metrics');
   const daysDir = path.join(dir, 'days');
   const read = (f, def) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return def; } };
@@ -355,7 +359,10 @@ export function createMonitor({
     const entry = { at: now, key, title, mailed: false };
     alerts.log.unshift(entry); alerts.log.length = Math.min(alerts.log.length, 50);
     dirty = true;
-    try { entry.mailed = await sendMail({ subject: `⚠ ${title}`, text: `${text}\n\n${linkLine()}` }); } catch (e) { entry.error = scrub(e.message, 160); }
+    await Promise.all([
+      (async () => { try { entry.mailed = await sendMail({ subject: `⚠ ${title}`, text: `${text}\n\n${linkLine()}` }); } catch (e) { entry.error = scrub(e.message, 160); } })(),
+      notifyOn() ? (async () => { try { entry.discord = await notify.send({ title: `⚠ ${title}`, text, kind: 'alert' }); } catch (e) { entry.discord = false; entry.discordError = scrub(e.message, 160); } })() : null,
+    ]);
     flush();
     return true;
   }
@@ -396,9 +403,16 @@ export function createMonitor({
     // 6. Сводка раз в сутки в 9 утра (если не вышло — повтор через час)
     if (hourIn(now, tz) >= 9 && alerts.digestDay !== today && now - (alerts.digestTriedAt || 0) > HOUR) {
       alerts.digestTriedAt = now; dirty = true;
-      if (!mailInfo().configured) alerts.digestDay = today;
+      const viaMail = !!mailInfo().configured, viaDiscord = notifyOn();
+      if (!viaMail && !viaDiscord) alerts.digestDay = today;
       else {
-        try { if (await sendMail({ subject: `Сводка за ${prevDay(today).slice(8, 10)}.${prevDay(today).slice(5, 7)}`, text: digestText() })) alerts.digestDay = today; } catch (e) { console.warn('[сводка]', e.message); }
+        // Ушло хоть куда-то — сводка за сегодня отправлена (иначе почта дублировалась бы каждый час, пока молчит Discord)
+        const subject = `Сводка за ${prevDay(today).slice(8, 10)}.${prevDay(today).slice(5, 7)}`, text = digestText();
+        const [m, d] = await Promise.all([
+          viaMail ? sendMail({ subject, text }).catch(e => { console.warn('[сводка]', e.message); return false; }) : false,
+          viaDiscord ? notify.send({ title: subject, text, kind: 'digest' }).catch(e => { console.warn('[сводка в Discord]', e.message); return false; }) : false,
+        ]);
+        if (m || d) alerts.digestDay = today;
       }
     }
     flush();
@@ -446,7 +460,7 @@ export function createMonitor({
       prev: { yesterday: brief([all[2]]), week: brief(all.slice(7, 14)), month: brief(all.slice(30, 60)) },
       days: all.map(d => ({ day: d.day, visitors: d.visitors, views: d.views, en: d.langs?.en || 0, nicks: nickCount(d), errors: d.errors.client + d.errors.server })).reverse(),
       errors: errorList(), alerts: alerts.log.slice(0, 20),
-      mail: { ...mailInfo(), digestDay: alerts.digestDay },
+      mail: { ...mailInfo(), digestDay: alerts.digestDay }, discord: { configured: notifyOn() },
     };
   }
 
@@ -491,6 +505,7 @@ export function createMonitor({
       bad.length ? `Внешние API с ошибкой сейчас: ${bad.map(x => `${x.name} (${x.lastError || '—'})`).join('; ')}` : 'Внешние API: все отвечают',
       b ? `ИИ-советчик: сегодня $${(b.today?.usd || 0).toFixed(3)} из $${b.dailyUsd}, за месяц $${(b.monthUsd || 0).toFixed(2)}` : null,
       `Сервер: обновлений ${cnt('update')}, откатов ${cnt('rollback')}, падений ${cnt('crash')}`,
+      ...(() => { try { const x = digestExtra() || []; return x.length ? ['', ...x] : []; } catch (e) { return ['', `Скорость: не посчиталась (${scrub(e.message, 120)})`]; } })(),
       '',
       linkLine(),
     ];
