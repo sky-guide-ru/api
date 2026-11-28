@@ -141,5 +141,15 @@ export function createStatus({ dataDir, keyedCallsRecent = () => 0, keyedPause =
     };
   }
 
-  return { track, publicStatus, adminStatus, background: stalls.background, stop: () => { lag.disable(); clearInterval(cpuTimer); clearInterval(lagTimer); stalls.stop(); } };
+  /** Короткий снимок раз в минуту для учёта скорости и тревог (monitor/perf.js) */
+  function sample() {
+    const mem = process.memoryUsage();
+    return {
+      cpu: hostPct, cpuProcess: cpuPct, rssMb: Math.round(mem.rss / 1048576), limitMb: containerMemory().limitMb,
+      freeMb: Math.round(os.freemem() / 1048576), totalMb: Math.round(os.totalmem() / 1048576), disk: diskInfo(dataDir),
+      lagMs: lagMs(), inFlight, rpm: rpm(), keyed5m: keyedCallsRecent(), paused: keyedPause(),
+    };
+  }
+
+  return { track, publicStatus, adminStatus, sample, background: stalls.background, stop: () => { lag.disable(); clearInterval(cpuTimer); clearInterval(lagTimer); stalls.stop(); } };
 }

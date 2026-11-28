@@ -2,7 +2,7 @@ import 'dotenv/config'; // .env читает api, ядро его не груз�
 // Первым: учёт внешних API оборачивает fetch до того, как его возьмут остальные модули (SDK советчика и др.)
 import { apiStats, keySince } from '@sky-guide/core/lib/api-stats.js';
 import { PARTS, statePart, partVersions, lightAnalysis, lightMember } from '@sky-guide/core/lib/state-parts.js';
-import { createStatus } from './status.js';
+import { createStatus, HYPIXEL_LIMIT } from './status.js';
 import { keyedCallsRecent, keyedPause, keyUsage, resolveUuid, getPlayer } from '@sky-guide/core/hypixel.js';
 import { rankFor } from '@sky-guide/core/rank.js';
 import { bingoRawFor, statusFor, knownStatus, skyblockNews } from '@sky-guide/core/live.js';
@@ -90,6 +90,8 @@ import { categoryKey } from '@sky-guide/core/market/categories.js';
 import { refreshWiki } from '@sky-guide/core/wiki/watch.js';
 import { securityHeaders, apiRateLimit, createConnLimiter, createRateLimiter } from './lib/guard.js';
 import { createMonitor, beaconHandler } from './monitor/index.js';
+import { createPerf } from './monitor/perf.js';
+import { createDiscordAlerts } from './monitor/discord.js';
 import { createGeo } from './monitor/geo.js';
 import { sendMail, mailerInfo } from './lib/mailer.js';
 import { smtpConfig, sendMail as sendSmtp } from './lib/smtp.js';
@@ -168,6 +170,8 @@ const status = createStatus({
   apis: () => apiStats.snapshot(), apiKey: config.apiKey, keySince: () => keySince(config.dataDir, config.apiKey),
 });
 app.use(status.track); // счётчик запросов для панели состояния
+// Тревоги и сводка — ещё и в закрытый канал Discord (DISCORD_ALERTS_WEBHOOK в .env; пусто — только почта)
+const discordAlerts = createDiscordAlerts({ webhook: process.env.DISCORD_ALERTS_WEBHOOK, siteUrl: String(process.env.SITE_URL || '') });
 // Свой учёт посещений и ошибок (без внешних сервисов, IP не сохраняется) и тревоги на почту владельцу — server/monitor
 const monitor = createMonitor({
   dataDir: config.dataDir, tz: process.env.LIVE_TZ || 'Europe/Moscow',
@@ -179,8 +183,15 @@ const monitor = createMonitor({
   // Владелец, его кооп, друзья с аккаунтом и скрытые игроки в статистику ников не попадают
   // Кооп владельца в списке соседей есть только по uuid — сверяем и его
   excludedNick: (n, uuid) => excludedFromStats({ name: n, uuid }),
+  notify: discordAlerts, digestExtra: () => perf.digestLines(),
 });
 app.use(monitor.track5xx);
+// Скорость и нагрузка по часам: время ответа каждого адреса, кэш профилей, расход ключа Hypixel, CPU, память, диск, вес сайта
+const perf = createPerf({
+  dataDir: config.dataDir, tz: process.env.LIVE_TZ || 'Europe/Moscow', sample: () => status.sample(), keyUsage: () => keyUsage.today(),
+  hypixelLimit: () => apiStats.snapshot()?.hypixel?.limit || HYPIXEL_LIMIT, webDist: config.webDist, alert: (...a) => monitor.alert(...a),
+});
+app.use(perf.track);
 // События из браузера (просмотр раздела, время загрузки, ошибка) — до входа: ошибки на странице входа тоже нужны
 // Страна посетителя — по офлайн-базе DB-IP в data/geo (скачивается сама, раз в месяц); IP не сохраняется
 const geo = createGeo({ dataDir: config.dataDir });
@@ -406,7 +417,10 @@ app.use('/api', (req, res, next) => {
       return { owner: true, self: mine, want, ...state, ...(mine || u?.admin ? {} : { feed: [], history: [] }) };
     }
     // Свой профиль друга обновляется чаще (раз в минуту, пока открыт), чужие — раз в 3 минуты
+    const t0 = Date.now();
     const v = await players.get(want, { force, ttlMs: self ? 3 * 60_000 : undefined, passive: !visible && !force });
+    // Кэш профилей: данные собраны до этого запроса — ушли сразу из памяти; собраны сейчас — ждали Hypixel
+    perf.profileView(!!v.member && v.updatedAt < t0);
     // У друзей с аккаунтом сайт хранит историю постоянно: она видна только им самим и владельцу
     // Ник берём уже определённый (по uuid или русской раскладке спросить могли иначе)
     const hideTracked = !self && !u?.admin && [want.player, v.player?.name, fixNick(want.player)].some(n => n && auth.users.get(n));
@@ -606,7 +620,7 @@ function buildId() {
 app.get('/api/version', (req, res) => res.json({ build: buildId() }));
 // Лампочка нагрузки для игроков и подробная панель для владельца (#/status)
 app.get('/api/status', (req, res) => res.set('Cache-Control', 'no-store').json(status.publicStatus()));
-app.get('/api/admin/status', auth.requireAdmin, (req, res) => res.set('Cache-Control', 'no-store').json(status.adminStatus()));
+app.get('/api/admin/status', auth.requireAdmin, (req, res) => res.set('Cache-Control', 'no-store').json({ ...status.adminStatus(), perf: perf.summary() }));
 // Посещения, ошибки, тревоги и почта — блоки на странице «Сервер»
 app.get('/api/admin/monitor', auth.requireAdmin, (req, res) => res.set('Cache-Control', 'no-store').json({ ...monitor.summary(), geo: geo.info() }));
 app.post('/api/admin/monitor/resolve', auth.requireAdmin, express.json({ limit: '1kb' }), (req, res) => res.json({ ok: monitor.resolve(String(req.body?.fp || '')) }));
@@ -617,6 +631,10 @@ app.post('/api/admin/monitor/test-mail', auth.requireAdmin, async (req, res) => 
     const r = await sendSmtp(smtpConfig(), { subject: '[Sky Guide] Проверка почты', text: tx`Если ты читаешь это письмо, тревоги и сводки будут приходить сюда.\n\nКак выглядит ежедневная сводка:\n\n${monitor.digestText()}` });
     res.json({ ok: true, via: r.via, failed: r.failed || [] });
   } catch (e) { res.json({ ok: false, error: String(e.message || e).slice(0, 200) }); }
+});
+app.post('/api/admin/monitor/test-discord', auth.requireAdmin, async (req, res) => {
+  if (!discordAlerts.enabled) return res.json({ ok: false, error: 'Discord не настроен: впиши в .env DISCORD_ALERTS_WEBHOOK (webhook закрытого канала) и перезапусти сайт' });
+  try { res.json({ ok: await discordAlerts.send({ title: 'Проверка: тревоги и сводка будут приходить сюда', text: `Как выглядит ежедневная сводка:\n\n${monitor.digestText()}`, kind: 'test' }) }); } catch (e) { res.json({ ok: false, error: String(e.message || e).slice(0, 200) }); }
 });
 
 // Прямая отправка писем: какие DNS-записи нужны и какие уже есть (docs/mail.md)
@@ -1047,8 +1065,9 @@ async function main() {
   { const tryBlocked = () => resolveBoardBlocked().then(ok => { if (!ok) setTimeout(tryBlocked, 10 * 60_000).unref?.(); }); tryBlocked(); }
   // Вики: раз в сутки проверить, не правили ли страницы, по которым сверены гайды (один лёгкий запрос к API fandom)
   if (process.env.WIKI_WATCH !== '0') setTimeout(() => loop(refreshWiki, 24 * 3600_000, 'вики'), 2 * 60_000); // выборы: голоса меняются, мэр сменяется раз в ~5 суток
-  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { keyUsage.flush(); try { apiKeys.flush(); } catch { /* не записали счётчики ключей — не страшно */ } saveHistory(true); charts.closeSync(); board.flush(); monitor.flush(); process.exit(0); });
+  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { keyUsage.flush(); try { apiKeys.flush(); } catch { /* не записали счётчики ключей — не страшно */ } saveHistory(true); charts.closeSync(); board.flush(); monitor.flush(); perf.flush(); process.exit(0); });
   monitor.start(); // тревоги раз в минуту и сводка на почту в 9 утра
+  perf.start(); // снимок нагрузки раз в минуту и тревоги по скорости, памяти, CPU, диску и ключу Hypixel
   // Через 4 минуты (когда есть Bazaar и первый скан аукциона) — дозаполнить прошлую неделю истории с Coflnet, потом раз в сутки
   const fill = () => backfillHistory(prices, { onSave: () => saveHistory(true) }).catch(e => console.warn('[история цен]', e.message));
   if (process.env.PRICE_BACKFILL !== '0') { setTimeout(fill, 4 * 60_000); setInterval(fill, 24 * 3600_000); }
