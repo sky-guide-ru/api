@@ -41,7 +41,7 @@ const PLAYER_ERRORS = {
  *   players: { view({ player, profile }), hidden(name) }; summary(v), plan(v), money(v);
  *   accessories(v, q), missing(v, q), networth(v, q), upgrades(v, id) — null, если у профиля нет этих данных;
  *   auctions(v) — свои лоты Auction House и ставки (async);
- *   calendar(year), miningEvents() → { at, islands } (async), leaderboard(q), guides: { list(), get(id) }, quotes(ids), trend(id), movers(period), crops(q), image(id) → png;
+ *   calendar(year), miningEvents() → { at, islands, fiesta } (async), leaderboard(q), guides: { list(), get(id) }, quotes(ids), trend(id), movers(period), crops(q), image(id) → png;
  *   section(name, v, q) для SECTIONS, guide(id, v), history(v, days)
  */
 export function createV1(d) {

@@ -69,7 +69,7 @@ import { setCollectionsResource as setCollectionsPage, analyzeCollections } from
 import { mountCollectionRoutes, collectionsView } from './mount/collections.js';
 import { mountMinionRoutes, minionsView } from './mount/minions.js';
 import { collectOwned } from '@sky-guide/core/advisor/lib/util.js';
-import { calendarBrief, bingoEvent } from '@sky-guide/core/calendar/index.js';
+import { calendarBrief, bingoEvent, fiestaOutlook } from '@sky-guide/core/calendar/index.js';
 import { createMiningEvents } from '@sky-guide/core/calendar/mining.js';
 import { mountCalendarRoutes, createCalendar } from './mount/calendar.js';
 import { mountNewsRoutes } from './mount/news.js';
@@ -200,7 +200,8 @@ const miningEvents = createMiningEvents();
 async function miningEventsNow() {
   if (!miningEvents.get()) await miningEvents.refresh();
   else miningEvents.refresh();
-  return miningEvents.get();
+  // Mining Fiesta: идёт ли сейчас и шансы Cole на выборах — из данных календаря, без трекера
+  return { ...(miningEvents.get() || { at: null, islands: [] }), fiesta: fiestaOutlook() };
 }
 const museumDeps = () => ({ constants: neu.constants, items: neu.items, price: priceOf, name: id => itemName(id) });
 const stash = createStash(() => ({ pricesKey: () => `${prices.bazaarAt}:${prices.binAt}`, constants: neu.constants, price: priceOf, buy: buyPriceOf, name: id => itemName(id), bazaar: id => prices.bazaar.get(id) || null, npc: id => npcPrices.get(id) || 0, owned: collectOwned, items: neu.items, whereToGet: id => getItemRu(id)?.whereToGet || [],

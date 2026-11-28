@@ -101,7 +101,7 @@ function makeDeps(over = {}) {
         summary: { coins: 9e8, sold: 1, expired: 0, active: 1, undercut: 1, outbid: 1, bids: 1 } };
     },
     calendar: year => ({ year: year ? Number(year) : 400, mayor: { name: 'Diana' }, money: [] }),
-    miningEvents: async () => ({ at: 5, source: 'Soopy', islands: [{ id: 'DWARVEN_MINES', name: 'Dwarven Mines', lobbies: 7, now: [{ id: 'DOUBLE_POWDER', name: '2x Powder', tip: 'Весь Powder ×2', hot: true, ends: 9, lobbies: 5, double: false }], soon: [{ id: 'RAFFLE', name: 'Raffle', from: 12, lobbies: 3 }] }] }),
+    miningEvents: async () => ({ at: 5, source: 'Soopy', islands: [{ id: 'DWARVEN_MINES', name: 'Dwarven Mines', lobbies: 7, now: [{ id: 'DOUBLE_POWDER', name: '2x Powder', tip: 'Весь Powder ×2', hot: true, ends: 9, lobbies: 5, double: false }], soon: [{ id: 'RAFFLE', name: 'Raffle', from: 12, lobbies: 3 }] }], fiesta: { updatedAt: 1, now: null, election: { open: true, opens: 1, closes: 2, year: 5, leader: { name: 'Paul', pct: 60 }, cole: { pct: 40, place: 2, fiesta: true, ministerFiesta: true } }, next: { from: 2, to: 3 } } }),
     leaderboard: q => { calls.push(['leaderboard', q]); return { board: q.board, rows: [{ rank: 1, name: 'Steve', value: 1e9 }], mode: q.mode, tracked: 1, boards: [{ id: 'networth', label: 'Networth' }] }; },
     guides: { list: () => ({ groups: [{ id: 'combat', title: 'Combat' }], guest: true, guides: [{ id: 'dungeons', title: 'Dungeons' }] }), get: id => (id === 'dungeons' ? { id, title: 'Dungeons', sections: [] } : null) },
     quotes: ids => Object.fromEntries(ids.map(id => [id, id === 'NOPE' ? null : { buy: 10, sell: 9 }])),

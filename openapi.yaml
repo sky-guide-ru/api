@@ -1855,6 +1855,37 @@ components:
       properties:
         at: { type: [integer, 'null'], description: 'Время сводки, мс (null — трекер не ответил)' }
         source: { type: string, description: Откуда данные }
+        fiesta:
+          type: object
+          description: 'Mining Fiesta: идёт ли сейчас (мэр или министр с перком) и будет ли в следующий срок — место и проценты Cole на выборах'
+          properties:
+            updatedAt: { type: [integer, 'null'] }
+            now:
+              type: [object, 'null']
+              properties:
+                by: { type: string, example: Cole }
+                role: { type: string, enum: [mayor, minister] }
+                until: { type: integer, description: 'Конец срока, мс' }
+            election:
+              type: object
+              properties:
+                open: { type: boolean }
+                opens: { type: integer }
+                closes: { type: integer, description: 'Итог выборов и смена мэра, мс' }
+                year: { type: [integer, 'null'] }
+                leader: { type: [object, 'null'], properties: { name: { type: string }, pct: { type: [number, 'null'] } } }
+                cole:
+                  type: [object, 'null']
+                  properties:
+                    pct: { type: [number, 'null'] }
+                    place: { type: integer }
+                    fiesta: { type: boolean, description: 'Перк Mining Fiesta среди перков кандидата' }
+                    ministerFiesta: { type: boolean, description: 'Mining Fiesta — его перк министра' }
+            next:
+              type: object
+              properties:
+                from: { type: integer }
+                to: { type: integer }
         islands:
           type: array
           items:
