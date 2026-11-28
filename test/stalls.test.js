@@ -20,7 +20,7 @@ test('routeOf: без ников и параметров', () => {
 });
 
 test('замирание записывается вместе с запросом, который держал сервер, и фоновой задачей', async () => {
-  const st = createStalls({ tickMs: 20, stallMs: 150, slowMs: 100 });
+  const st = createStalls({ tickMs: 20, stallMs: 150, slowMs: 100, warmupMs: 0 });
   try {
     const fastDone = st.begin('/api/version');
     fastDone();
