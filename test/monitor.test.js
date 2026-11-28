@@ -314,3 +314,21 @@ test('база стран: без файла и без сети — страна
   assert.equal(isoOf({ registered_country: { iso_code: 'DE' } }), 'DE');
   assert.equal(isoOf(null), '');
 });
+
+test('подвисания: счётчики по устройству и разделам, мусор отсекается', () => {
+  const { m } = make();
+  assert.equal(m.jank({ money: [600, 6, 400, 900] }, { ip: '1', ua: UA }), true);
+  m.jank({ money: [600, 0, 0, 0], '<x>': [700, 7, 3000, 5000] }, { ip: '2', ua: UA });
+  m.jank({ pets: [60, 2, 150, 260] }, { ip: '3', ua: PHONE });
+  assert.equal(m.jank({ money: [600, 9, 900, 900] }, { ip: '4', ua: UA, owner: true }), false);
+  assert.equal(m.jank({ money: [600, 9, 900, 900] }, { ip: '5', ua: 'Googlebot/2.1' }), false);
+  assert.equal(m.jank('мусор', { ip: '6', ua: UA }), false);
+  m.jank({ money: [1e9, 1e9, 1e9, 1e9] }, { ip: '7', ua: UA }); // потолки
+  const j = m.summary().today.jank;
+  assert.equal(j.desktop.n, 6 + 7 + 300);
+  assert.equal(j.desktop.minutes, Math.round((600 + 600 + 700 + 1800) / 60));
+  assert.equal(j.desktop.over500, 2); // 3000 мс и потолок 60 с
+  assert.equal(j.mobile.n, 2);
+  assert.deepEqual(j.sections.map(([k]) => k), ['money', 'other']); // «<x>» → other; pets открыт меньше 10 минут — не в списке
+  assert.ok(m.summary().today.jank.sections.every(([k]) => /^[a-z0-9-]+$/.test(k)));
+});
