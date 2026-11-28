@@ -404,9 +404,16 @@ export function createMonitor({
     // 6. Сводка раз в сутки в 9 утра (если не вышло — повтор через час)
     if (hourIn(now, tz) >= 9 && alerts.digestDay !== today && now - (alerts.digestTriedAt || 0) > HOUR) {
       alerts.digestTriedAt = now; dirty = true;
-      if (!mailInfo().configured) alerts.digestDay = today;
+      const viaMail = !!mailInfo().configured, viaDiscord = notifyOn();
+      if (!viaMail && !viaDiscord) alerts.digestDay = today;
       else {
-        try { if (await sendMail({ subject: `Сводка за ${prevDay(today).slice(8, 10)}.${prevDay(today).slice(5, 7)}`, text: digestText() })) alerts.digestDay = today; } catch (e) { console.warn('[сводка]', e.message); }
+        // Ушло хоть куда-то — сводка за сегодня отправлена (иначе почта дублировалась бы каждый час, пока молчит Discord)
+        const subject = `Сводка за ${prevDay(today).slice(8, 10)}.${prevDay(today).slice(5, 7)}`, text = digestText();
+        const [m, d] = await Promise.all([
+          viaMail ? sendMail({ subject, text }).catch(e => { console.warn('[сводка]', e.message); return false; }) : false,
+          viaDiscord ? notify.send({ title: subject, text, kind: 'digest' }).catch(e => { console.warn('[сводка в Discord]', e.message); return false; }) : false,
+        ]);
+        if (m || d) alerts.digestDay = today;
       }
     }
     flush();
