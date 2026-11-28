@@ -1028,19 +1028,19 @@ async function main() {
     // Пороги коллекций: советы по коллекциям и проверка, открыт ли рецепт крафт-флипа
     getCollectionsResource().then(r => { setCollectionsResource(r); setCraftCollections(r); setCollectionsPage(r); })
       .catch(e => console.warn('[коллекции]', e.message)),
-  ]).then(() => { if (state.member) { reanalyze(); bus.emit('profile'); } });
+  ]).then(async () => { if (state.member) { await reanalyze(); bus.emit('profile'); } });
   // Bazaar берём раз в ~20 с ради свечей «Рынка», а советы пересчитываем и рассылаем, как раньше, раз в минуту
   let analyzedAt = 0, bazaarErrAt = 0;
   loop(async () => {
     // Ошибка (Hypixel недоступен) в журнал и счётчик тревог — не чаще раза в минуту, как было до частых опросов
     try { await refreshBazaar(); } catch (e) { if (Date.now() - bazaarErrAt < 55_000) return; bazaarErrAt = Date.now(); throw e; }
     charts.onBazaar();
-    if (Date.now() - analyzedAt >= config.bazaarRefresh - 2000) { analyzedAt = Date.now(); reanalyzeForPrices(); bus.emit('prices'); }
+    if (Date.now() - analyzedAt >= config.bazaarRefresh - 2000) { analyzedAt = Date.now(); await reanalyzeForPrices(); bus.emit('prices'); }
   }, config.bazaarTick, 'bazaar');
   charts.start();
   // Свой профиль: цикл проверяет каждые 20 с, а запросы тратит только когда пора (state.js ownerRefreshDue)
   loop(async () => { if (ownerRefreshDue()) await refreshProfile(); }, 20_000, 'профиль');
-  loop(async () => { await refreshAuctions(); reanalyzeForPrices(); bus.emit('prices'); }, config.auctionRefresh, 'аукцион');
+  loop(async () => { await refreshAuctions(); await reanalyzeForPrices(); bus.emit('prices'); }, config.auctionRefresh, 'аукцион');
   loop(async () => { await refreshEndedAuctions(); }, 60_000, 'продажи AH');
   loop(refreshMayor, 5 * 60_000, 'мэр'); // и голоса выборов: снимок раз в 5 минут для тренда и шансов
   // Рейтинг: ники владельца, друзей и скрытых → uuid (повтор каждые 10 минут, пока не получится для всех)
