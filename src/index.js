@@ -54,6 +54,8 @@ import { createDiscordNews } from './discord-news.js';
 import { mountDiscordLink, createLinkStore } from './discord-link.js';
 import { createDiscordBot } from './discord-bot/index.js';
 import { createDiscordEvents } from './discord-events.js';
+import { createBotSettings, mountBotSettings, TOGGLE_COMMANDS } from './discord-settings.js';
+import { createGuild } from './discord-guild.js';
 import { NEWS } from '@sky-guide/core/news/entries.js';
 import { enrichGuide, lexiconPhrases, refsData } from '@sky-guide/core/guides/refs.js';
 import { warpTable } from '@sky-guide/core/guides/warps.js';
@@ -139,7 +141,13 @@ mountPublicRoutes(app, { env: process.env, seo, origin: siteOrigin, indexNowKey:
 mountLegalRoutes(app, { env: process.env, isOwner: req => auth.isOwnerRequest(req) });
 // Привязка Discord к нику (роль Verified на сервере): /discord, тоже до входа. Привязки — data/discord-links.json, наружу не отдаются
 const discordLinks = createLinkStore(path.join(config.dataDir, 'discord-links.json'));
-const discordLinking = mountDiscordLink(app, { env: process.env, store: discordLinks, siteUrl: publicConfig(process.env).siteUrl, clientIp: auth.clientIp, resolveUuid, getPlayer });
+// Настройки бота со страницы «Discord-бот» (каналы, роли, что включено) — data/discord-settings.json, действуют сразу.
+// Пока на странице ничего не сохраняли — значения из .env. Секреты остаются только в .env
+const botSettings = createBotSettings({ file: path.join(config.dataDir, 'discord-settings.json'), env: process.env });
+const botGuild = createGuild({ token: process.env.DISCORD_BOT_TOKEN, guildId: () => botSettings.guildId() });
+const botGuildId = () => botSettings.guildId() || botGuild.guildIdNow();
+const discordLinking = mountDiscordLink(app, { env: process.env, store: discordLinks,
+  live: () => { const v = botSettings.get('verify'); return { on: v.on, guildId: botGuildId() || undefined, roleId: v.role, syncNick: v.nick }; }, siteUrl: publicConfig(process.env).siteUrl, clientIp: auth.clientIp, resolveUuid, getPlayer });
 app.get(['/og.png', '/og-en.png'], (req, res) => res.set('Cache-Control', 'public, max-age=86400').type('image/png').sendFile(path.join(config.webDist, req.path.slice(1))));
 app.get('/favicon.svg', (req, res) => res.set('Cache-Control', 'public, max-age=86400').type('image/svg+xml').sendFile(path.join(config.webDist, 'favicon.svg')));
 // Аватарки открыты и до входа (страница входа); незнакомый ник сервер скачивает с mc-heads.net — поэтому свой лимит
@@ -172,9 +180,10 @@ const status = createStatus({
 app.use(status.track); // счётчик запросов для панели состояния
 // Тревоги о серьёзных сбоях — ещё и в Discord: webhook, канал бота или личные сообщения владельцу от бота
 // (Discord, привязанный к нику владельца в #verify). Плюс живое сообщение «состояние сайта» (DISCORD_STATUS_CHANNEL_ID)
+const ownerDiscordId = () => process.env.DISCORD_ALERTS_USER_ID || (state.player?.uuid ? discordLinks.byUuid(state.player.uuid) || discordLinks.byUuid(state.player.uuid.replace(/-/g, '')) : null);
 const discordAlerts = createDiscordAlerts({
   webhook: process.env.DISCORD_ALERTS_WEBHOOK, botToken: process.env.DISCORD_BOT_TOKEN, channelId: process.env.DISCORD_ALERTS_CHANNEL_ID,
-  userId: () => process.env.DISCORD_ALERTS_USER_ID || (state.player?.uuid ? discordLinks.byUuid(state.player.uuid) || discordLinks.byUuid(state.player.uuid.replace(/-/g, '')) : null),
+  userId: ownerDiscordId, live: () => ({ alerts: botSettings.get('alerts'), status: botSettings.get('status') }),
   statusChannelId: process.env.DISCORD_STATUS_CHANNEL_ID, statusFile: path.join(config.dataDir, 'discord-status.json'),
   siteUrl: String(process.env.SITE_URL || ''),
 });
@@ -324,7 +333,10 @@ const discordBot = createDiscordBot({
   search: (q, limit) => searchList(q, limit), quote: id => quoteOf(id),
   linkOf: id => discordLinks.linkOf(id), linkPage: true, // привязки со страницы /discord (discord-link.js)
   // /link и /unlink в Discord — та же привязка, что на /discord; 5 попыток за 10 минут, чтобы не тратить лимит Hypixel
-  ...(discordLinking.enabled ? { link: (u, n) => discordLinking.link(u, n), unlink: u => discordLinking.unlink(u), allowLink: id => botLinkLimit.hit(id) === 0 } : {}),
+  // Включена ли привязка, канал кнопок, сервер и выключенные команды — со страницы «Discord-бот», читаются каждый раз
+  link: (u, n) => discordLinking.link(u, n), unlink: u => discordLinking.unlink(u), allowLink: id => botLinkLimit.hit(id) === 0, linkEnabled: () => discordLinking.enabled,
+  verifyOn: () => botSettings.get('verify').on, verifyChannelId: () => botSettings.get('verify').channel, guildId: botGuildId,
+  commandsOff: () => { const c = botSettings.get('commands'); return c.on ? c.off : TOGGLE_COMMANDS; },
   allowNick: (user, nick) => players.isOwner({ player: nick, profile: '' }) || (botNickLimit.allow(`u:${user}`, nick) && botAllLimit.allow('all', nick)),
   commandsFile: path.join(config.dataDir, 'discord-commands.json'), verifyFile: path.join(config.dataDir, 'discord-verify.json'),
 });
@@ -639,9 +651,14 @@ app.post('/api/admin/monitor/test-mail', auth.requireAdmin, async (req, res) => 
     res.json({ ok: true, via: r.via, failed: r.failed || [] });
   } catch (e) { res.json({ ok: false, error: String(e.message || e).slice(0, 200) }); }
 });
+async function testDiscordAlert() {
+  if (!discordAlerts.enabled) return { ok: false, error: 'Тревоги в Discord не настроены: выбери на странице «Discord-бот», куда их писать' };
+  try { return { ok: await discordAlerts.send({ title: 'Проверка: тревоги о сбоях будут приходить сюда', text: 'Сюда придёт сообщение, только если с сайтом что-то серьёзно не так: упал, почти не отвечает, кончается память или диск, Hypixel не принимает ключ.', kind: 'test' }), mode: discordAlerts.mode() }; } catch (e) { return { ok: false, error: String(e.message || e).slice(0, 200) }; }
+}
+// Страница «Discord-бот» (только владельцу): списки каналов и ролей с сервера, правка настроек, «Создать канал/роли», проверка
+mountBotSettings(app, { express, requireAdmin: auth.requireAdmin, settings: botSettings, guild: botGuild, env: process.env, ownerDiscord: ownerDiscordId, testAlert: testDiscordAlert });
 app.post('/api/admin/monitor/test-discord', auth.requireAdmin, async (req, res) => {
-  if (!discordAlerts.enabled) return res.json({ ok: false, error: 'Discord не настроен: нужен бот (DISCORD_BOT_TOKEN) и привязка Discord владельца в #verify, или DISCORD_ALERTS_CHANNEL_ID, или DISCORD_ALERTS_WEBHOOK' });
-  try { res.json({ ok: await discordAlerts.send({ title: 'Проверка: тревоги о сбоях будут приходить сюда', text: 'Сюда придёт сообщение, только если с сайтом что-то серьёзно не так: упал, почти не отвечает, кончается память или диск, Hypixel не принимает ключ.', kind: 'test' }), mode: discordAlerts.mode() }); } catch (e) { res.json({ ok: false, error: String(e.message || e).slice(0, 200) }); }
+  res.json(await testDiscordAlert());
 });
 
 // Прямая отправка писем: какие DNS-записи нужны и какие уже есть (docs/mail.md)
@@ -1020,13 +1037,12 @@ async function main() {
   }, 90_000).unref?.();
   // Новости сайта и патчноуты SkyBlock — в канал Discord (только с DISCORD_NEWS_WEBHOOK в .env; что отправлено — data/discord-news.json)
   const discordNews = createDiscordNews({
-    webhook: process.env.DISCORD_NEWS_WEBHOOK, siteUrl: publicConfig(process.env).siteUrl, file: path.join(config.dataDir, 'discord-news.json'),
+    webhook: process.env.DISCORD_NEWS_WEBHOOK, channel: () => botSettings.get('news').channel, on: () => botSettings.get('news').on, botToken: process.env.DISCORD_BOT_TOKEN, siteUrl: publicConfig(process.env).siteUrl, file: path.join(config.dataDir, 'discord-news.json'),
     patches: skyblockNews, translate: s => inLang('en', () => getTranslator().tr(s)),
   });
-  if (discordNews.enabled) {
-    setTimeout(() => discordNews.tick(), 120_000).unref?.();
-    setInterval(() => discordNews.tick(), 15 * 60_000).unref?.();
-  } else if (process.env.DISCORD_NEWS_WEBHOOK) console.warn('[discord] DISCORD_NEWS_WEBHOOK не похож на адрес webhook Discord — новости в канал не отправляются');
+  // Канал можно выбрать на странице в любой момент — опрашиваем всегда, без канала и webhook tick ничего не делает
+  setTimeout(() => discordNews.tick(), 120_000).unref?.();
+  setInterval(() => discordNews.tick(), 15 * 60_000).unref?.();
   // Слэш-команды бота — в Discord, если их список изменился (нужен DISCORD_BOT_TOKEN)
   if (discordBot.enabled) setTimeout(() => discordBot.registerCommands().catch(e => console.warn('[discord-бот]', e.message)), 10_000).unref?.();
   // Сообщение с кнопкой «Верификация» в #verify: само ставится и держится последним (раз в 15 минут)
@@ -1038,13 +1054,12 @@ async function main() {
   // События SkyBlock (Jacob, Dark Auction, мэр, Fire Sales, большие ивенты) — в свой канал с пингом ролей-подписок
   // (DISCORD_EVENTS_WEBHOOK и DISCORD_EVENTS_ROLES в .env; что отправлено — data/discord-events.json). Hypixel лишний раз не спрашиваем
   const discordEvents = createDiscordEvents({
-    webhook: process.env.DISCORD_EVENTS_WEBHOOK, roles: process.env.DISCORD_EVENTS_ROLES, siteUrl: publicConfig(process.env).siteUrl,
+    webhook: process.env.DISCORD_EVENTS_WEBHOOK, channel: () => botSettings.get('events').channel, on: () => botSettings.get('events').on,
+    botToken: process.env.DISCORD_BOT_TOKEN, roles: () => botSettings.get('events').roles, siteUrl: publicConfig(process.env).siteUrl,
     file: path.join(config.dataDir, 'discord-events.json'), translate: s => inLang('en', () => getTranslator().tr(s)),
   });
-  if (discordEvents.enabled) {
-    setTimeout(() => discordEvents.tick(), 60_000).unref?.(); // к этому времени refreshMayor уже принёс выборы и Fire Sales
-    setInterval(() => discordEvents.tick(), 30_000).unref?.();
-  } else if (process.env.DISCORD_EVENTS_WEBHOOK) console.warn('[discord] DISCORD_EVENTS_WEBHOOK не похож на адрес webhook Discord — события в канал не отправляются');
+  setTimeout(() => discordEvents.tick(), 60_000).unref?.(); // к этому времени refreshMayor уже принёс выборы и Fire Sales
+  setInterval(() => discordEvents.tick(), 30_000).unref?.();
   // Цены NPC и пороги коллекций — параллельно с профилем и ценами, а не перед ними: раньше каждый перезапуск
   // ждал эти два запроса (а при сбое Hypixel — их таймауты) до первого профиля. Пришли — пересчитываем советы
   Promise.allSettled([
@@ -1076,8 +1091,9 @@ async function main() {
   monitor.start(); // тревоги раз в минуту и сводка на почту в 9 утра
   perf.start(); // снимок нагрузки раз в минуту и тревоги о серьёзных сбоях (скорость, память, CPU, диск, пауза ключа Hypixel)
   // Живое сообщение «состояние сайта» в Discord — правится раз в минуту
-  if (discordAlerts.statusEnabled) {
+  {
     const pushStatus = () => {
+      if (!discordAlerts.statusEnabled) return;
       const a = status.adminStatus(), w = perf.windowStats(), hr = perf.period(1);
       discordAlerts.updateStatus({ load: a.load, why: a.why, uptimeSec: a.uptimeSec, perHour: hr.requests, p95: w.p95 ?? hr.p95, e5: w.e5,
         hypixel: { used5m: a.hypixel.used5m, limit: a.hypixel.limit5m, paused: !!a.hypixel.paused }, cpu: a.cpu.server, at: Date.now() })
@@ -1085,6 +1101,12 @@ async function main() {
     };
     setTimeout(pushStatus, 30_000).unref?.();
     setInterval(pushStatus, 60_000).unref?.();
+    // Правка на странице «Discord-бот» — сразу в дело: сообщение состояния, кнопки верификации, список команд
+    botSettings.onChange(id => {
+      if (id === 'status') setTimeout(pushStatus, 500);
+      if (id === 'verify' || id === 'guild') discordBot.ensurePanel().catch(e => console.warn('[discord-бот] верификация:', e.message));
+      if (id === 'commands') discordBot.registerCommands().catch(e => console.warn('[discord-бот]', e.message));
+    });
   }
   // Через 4 минуты (когда есть Bazaar и первый скан аукциона) — дозаполнить прошлую неделю истории с Coflnet, потом раз в сутки
   const fill = () => backfillHistory(prices, { onSave: () => saveHistory(true) }).catch(e => console.warn('[история цен]', e.message));

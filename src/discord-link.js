@@ -6,7 +6,7 @@
 // Привязки лежат в data/discord-links.json и наружу не отдаются: ими пользуется только свой бот (/profile без ника).
 //
 // .env: DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_BOT_TOKEN, DISCORD_GUILD_ID, DISCORD_VERIFIED_ROLE_ID,
-// DISCORD_SYNC_NICK=1 (ник на сервере = ник в игре). Пока чего-то нет — страница /discord зовёт просто на сервер.
+// DISCORD_SYNC_NICK=1 (ник на сервере = ник в игре; сервер, роль и ник — ещё и со страницы «Discord-бот»). Пока чего-то нет — страница /discord зовёт просто на сервер.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { tx } from '@sky-guide/core/i18n/msg.js';
@@ -21,17 +21,18 @@ const STATE_TTL = 10 * 60_000;
 const COOKIE = 'sb_dc';
 export const INVITE = 'https://discord.gg/hHgJJFCGQe';
 
-/** Настройки из .env; enabled — всё на месте и похоже на настоящие значения */
-export function discordLinkConfig(env = process.env) {
+/** Настройки из .env (сервер, роль и ник можно поменять на странице «Discord-бот»: live); enabled — всё на месте и похоже на настоящие значения */
+export function discordLinkConfig(env = process.env, live = null) {
+  const l = live || {};
   const c = {
     clientId: String(env.DISCORD_CLIENT_ID || '').trim(),
     secret: String(env.DISCORD_CLIENT_SECRET || '').trim(),
     botToken: String(env.DISCORD_BOT_TOKEN || '').trim(),
-    guildId: String(env.DISCORD_GUILD_ID || '').trim(),
-    roleId: String(env.DISCORD_VERIFIED_ROLE_ID || '').trim(),
-    syncNick: String(env.DISCORD_SYNC_NICK || '').trim() === '1',
+    guildId: String(l.guildId ?? env.DISCORD_GUILD_ID ?? '').trim(),
+    roleId: String(l.roleId ?? env.DISCORD_VERIFIED_ROLE_ID ?? '').trim(),
+    syncNick: l.syncNick != null ? !!l.syncNick : String(env.DISCORD_SYNC_NICK || '').trim() === '1',
   };
-  c.enabled = SNOWFLAKE.test(c.clientId) && c.secret.length >= 16 && c.botToken.length >= 30
+  c.enabled = l.on !== false && SNOWFLAKE.test(c.clientId) && c.secret.length >= 16 && c.botToken.length >= 30
     && SNOWFLAKE.test(c.guildId) && SNOWFLAKE.test(c.roleId);
   return c;
 }
@@ -108,7 +109,9 @@ function readCookie(req, name) {
  *   getPlayer: (uuid: string) => Promise<{player?: object}>, clock?: () => number, log?: Console }} o
  */
 export function mountDiscordLink(app, o) {
-  const cfg = discordLinkConfig(o.env || process.env);
+  // Сервер, роль и «ник как в игре» — со страницы «Discord-бот» (o.live), читаются при каждом запросе
+  const env = o.env || process.env;
+  const C = () => discordLinkConfig(env, o.live?.() || null);
   const store = o.store || createLinkStore(null);
   const fetchFn = o.fetchFn || globalThis.fetch, clock = o.clock || (() => Date.now()), log = o.log || console;
   const clientIp = o.clientIp || (req => String(req.socket?.remoteAddress || ''));
@@ -135,21 +138,21 @@ export function mountDiscordLink(app, o) {
     try { data = r.status === 204 ? null : await r.json(); } catch { /* пустой ответ */ }
     return { ok: r.ok, status: r.status, data };
   }
-  const bot = `Bot ${cfg.botToken}`;
-  const member = uid => `/guilds/${cfg.guildId}/members/${uid}`;
-  const addRole = uid => discord(`${member(uid)}/roles/${cfg.roleId}`, { method: 'PUT', auth: bot, reason: 'Sky Guide: ник Minecraft подтверждён' });
-  const removeRole = uid => discord(`${member(uid)}/roles/${cfg.roleId}`, { method: 'DELETE', auth: bot, reason: 'Sky Guide: привязка снята' });
+  const bot = `Bot ${C().botToken}`;
+  const member = uid => `/guilds/${C().guildId}/members/${uid}`;
+  const addRole = uid => discord(`${member(uid)}/roles/${C().roleId}`, { method: 'PUT', auth: bot, reason: 'Sky Guide: ник Minecraft подтверждён' });
+  const removeRole = uid => discord(`${member(uid)}/roles/${C().roleId}`, { method: 'DELETE', auth: bot, reason: 'Sky Guide: привязка снята' });
   const setNick = (uid, nick) => discord(member(uid), { method: 'PATCH', auth: bot, body: { nick }, reason: 'Sky Guide: ник как в игре' });
 
   async function whoOnDiscord(code, req) {
     const t = await discord('/oauth2/token', {
       method: 'POST',
-      form: { client_id: cfg.clientId, client_secret: cfg.secret, grant_type: 'authorization_code', code, redirect_uri: redirectUri(req) },
+      form: { client_id: C().clientId, client_secret: C().secret, grant_type: 'authorization_code', code, redirect_uri: redirectUri(req) },
     });
     if (!t.ok || !t.data?.access_token) throw new Error(`token ${t.status}`);
     const me = await discord('/users/@me', { auth: `Bearer ${t.data.access_token}` });
     // Токен больше не нужен: отзываем сразу, у сайта не остаётся доступа к аккаунту
-    discord('/oauth2/token/revoke', { method: 'POST', form: { client_id: cfg.clientId, client_secret: cfg.secret, token: t.data.access_token } }).catch(() => {});
+    discord('/oauth2/token/revoke', { method: 'POST', form: { client_id: C().clientId, client_secret: C().secret, token: t.data.access_token } }).catch(() => {});
     if (!me.ok || !SNOWFLAKE.test(String(me.data?.id || ''))) throw new Error(`users/@me ${me.status}`);
     return me.data;
   }
@@ -169,7 +172,7 @@ export function mountDiscordLink(app, o) {
     const notMember = role.status === 404 && role.data?.code === 10007;
     if (!role.ok && !notMember) log.warn(`[discord] роль не выдана: ${role.status} ${role.data?.code ?? ''}`);
     let nickSet = false;
-    if (cfg.syncNick && role.ok) nickSet = (await setNick(user.id, mc.name).catch(() => ({ ok: false }))).ok;
+    if (C().syncNick && role.ok) nickSet = (await setNick(user.id, mc.name).catch(() => ({ ok: false }))).ok;
     const prev = store.get(user.id);
     const old = store.set(user.id, { uuid: mc.uuid, name: mc.name, at: clock(), nickSet: nickSet || (prev?.uuid === mc.uuid && !!prev?.nickSet) });
     for (const id of old) removeRole(id).catch(() => {}); // этот ник раньше был у другого Discord
@@ -194,7 +197,7 @@ export function mountDiscordLink(app, o) {
   function formPage(nick = '') {
     return shell('Discord', tx`
       <div class="who"><img id="av" src="${head(nick || 'MHF_Steve')}" alt=""><div><h1>Discord</h1><div class="muted">Роль Verified на сервере Sky Guide</div></div></div>
-      <p>${cfg.syncNick ? tx`Ник из Minecraft привязывается к Discord: на сервере появится роль Verified, а ник станет как в игре.` : tx`Ник из Minecraft привязывается к Discord: на сервере появится роль Verified.`}</p>
+      <p>${C().syncNick ? tx`Ник из Minecraft привязывается к Discord: на сервере появится роль Verified, а ник станет как в игре.` : tx`Ник из Minecraft привязывается к Discord: на сервере появится роль Verified.`}</p>
       ${howTo()}
       <form method="get" action="/discord/start">
         <input type="hidden" name="l" value="${isEn() ? 'en' : 'ru'}">
@@ -222,7 +225,7 @@ export function mountDiscordLink(app, o) {
     const who = (title, sub = '') => `<div class="who"><img src="${head(f.nick || 'MHF_Steve')}" alt=""><div><h1>${title}</h1>${sub ? `<div class="muted">${sub}</div>` : ''}</div></div>`;
     const flash = (kind, msg) => `<div class="flash ${kind}">${msg}</div>`;
     const pages = {
-      ok: () => who(tx`Готово`, nick) + flash('ok', cfg.syncNick ? tx`Ник подтверждён: на сервере выдана роль Verified, ник — как в игре.` : tx`Ник подтверждён: на сервере выдана роль Verified.`)
+      ok: () => who(tx`Готово`, nick) + flash('ok', C().syncNick ? tx`Ник подтверждён: на сервере выдана роль Verified, ник — как в игре.` : tx`Ник подтверждён: на сервере выдана роль Verified.`)
         + `<a class="btn" href="${INVITE}" ${ext}>${tx`Открыть Discord`}</a>${back()}`,
       join: () => who(tx`Почти готово`, nick) + flash('warn', tx`Ник подтверждён, но тебя ещё нет на сервере. Зайди на сервер и привяжи ещё раз — роль выдастся сразу.`)
         + `<div class="links"><a class="btn" href="${INVITE}" ${ext}>${tx`Зайти на сервер`}</a>${again}</div>${back()}`,
@@ -253,30 +256,30 @@ export function mountDiscordLink(app, o) {
     res.set('Cache-Control', 'no-store');
     const f = req.query.f && flashes.get(String(req.query.f));
     if (f) return res.type('html').send(resultPage(f));
-    if (!cfg.enabled) return res.type('html').send(offPage());
+    if (!C().enabled) return res.type('html').send(offPage());
     const nick = NICK.test(String(req.query.nick || '')) ? String(req.query.nick) : '';
     res.type('html').send(formPage(nick));
   });
 
   app.get('/discord/start', (req, res) => {
     const lang = req.query.l === 'en' ? 'en' : 'ru';
-    if (!cfg.enabled) return res.redirect(303, `${lang === 'en' ? '/en' : ''}/discord`);
+    if (!C().enabled) return res.redirect(303, `${lang === 'en' ? '/en' : ''}/discord`);
     const act = req.query.do === 'unlink' ? 'unlink' : 'link';
     const nick = String(req.query.nick || '').trim().replace(/^@+/, '');
     if (act === 'link' && !NICK.test(nick)) return res.redirect(303, `${lang === 'en' ? '/en' : ''}/discord`);
     const wait = startLimit.hit(clientIp(req));
     if (wait) return res.status(429).set('Retry-After', String(wait)).type('text').send(tx`Слишком много попыток. Подожди ${Math.ceil(wait / 60)} мин`);
     const nonce = crypto.randomBytes(12).toString('base64url');
-    const state = signState({ a: act, n: act === 'link' ? nick : '', l: lang, k: nonce, x: clock() + STATE_TTL }, cfg.secret);
+    const state = signState({ a: act, n: act === 'link' ? nick : '', l: lang, k: nonce, x: clock() + STATE_TTL }, C().secret);
     res.set('Set-Cookie', nonceCookie(req, nonce, STATE_TTL / 1000));
-    const q = new URLSearchParams({ response_type: 'code', client_id: cfg.clientId, scope: 'identify', redirect_uri: redirectUri(req), state, prompt: 'none' });
+    const q = new URLSearchParams({ response_type: 'code', client_id: C().clientId, scope: 'identify', redirect_uri: redirectUri(req), state, prompt: 'none' });
     res.redirect(303, `https://discord.com/oauth2/authorize?${q}`);
   });
 
   app.get('/discord/callback', async (req, res) => {
     res.set('Cache-Control', 'no-store');
-    if (!cfg.enabled) return res.redirect(303, '/discord');
-    const st = readState(req.query.state, cfg.secret, clock());
+    if (!C().enabled) return res.redirect(303, '/discord');
+    const st = readState(req.query.state, C().secret, clock());
     const lang = st?.l === 'en' ? 'en' : 'ru';
     // Состояние подписано и привязано к этому браузеру (cookie): чужую ссылку с кодом подсунуть нельзя
     if (!st || readCookie(req, COOKIE) !== st.k) return showResult(res, lang, { r: 'expired' });
@@ -293,5 +296,5 @@ export function mountDiscordLink(app, o) {
   });
 
   // link/unlink — и для команд бота /link и /unlink (тот же Discord-пользователь, только без OAuth)
-  return { enabled: cfg.enabled, store, link, unlink, _test: { link, unlink } };
+  return { get enabled() { return C().enabled; }, store, link, unlink, _test: { link, unlink } };
 }

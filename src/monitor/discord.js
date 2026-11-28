@@ -4,6 +4,7 @@
 //   2. DISCORD_ALERTS_CHANNEL_ID — канал, куда пишет бот Sky Guide (DISCORD_BOT_TOKEN уже есть);
 //   3. личные сообщения владельцу от бота: DISCORD_ALERTS_USER_ID или Discord, привязанный к нику владельца в #verify.
 // Состояние сайта: DISCORD_STATUS_CHANNEL_ID — бот держит там одно сообщение и правит его раз в минуту.
+// Со страницы «Discord-бот» (live) то же выбирается из списков и действует сразу; .env — значения по умолчанию.
 // В тексты не попадают ключи, почта, IP и ники (scrub в monitor, в состоянии — только числа).
 import fs from 'node:fs';
 import { validWebhook } from '../discord-news.js';
@@ -62,14 +63,25 @@ export function statusMessage(s) {
  * @param {{ webhook?: string, botToken?: string, channelId?: string, userId?: () => string|null,
  *   statusChannelId?: string, statusFile?: string, siteUrl?: string, fetchFn?: typeof fetch }} o
  */
-export function createDiscordAlerts({ webhook = '', botToken = '', channelId = '', userId = () => null, statusChannelId = '', statusFile = '', siteUrl = '', fetchFn = globalThis.fetch } = {}) {
+export function createDiscordAlerts({ webhook = '', botToken = '', channelId = '', userId = () => null, statusChannelId = '', statusFile = '', siteUrl = '', fetchFn = globalThis.fetch, live = null } = {}) {
   const hook = String(webhook || '').trim(), token = String(botToken || '').trim();
-  const chan = SNOWFLAKE.test(String(channelId || '').trim()) ? String(channelId).trim() : '';
-  const statusChan = token && SNOWFLAKE.test(String(statusChannelId || '').trim()) ? String(statusChannelId).trim() : '';
+  const snow = v => (SNOWFLAKE.test(String(v || '').trim()) ? String(v).trim() : '');
+  // live() — настройки со страницы «Discord-бот»: { alerts: { on, to: 'dm'|'channel'|'webhook', channel }, status: { on, channel } }.
+  // Читаются при каждой отправке, поэтому смена канала на странице действует сразу. Без live — как раньше, из .env
+  const cur = () => { try { return live?.() || null; } catch { return null; } };
+  const chan = () => { const l = cur()?.alerts; return snow(l ? l.channel : channelId); };
+  const statusChan = () => { const l = cur()?.status; return token ? snow(l ? (l.on === false ? '' : l.channel) : statusChannelId) : ''; };
   const site = String(siteUrl || '').replace(/\/$/, '');
   const url = site ? `${site}/#/status` : '';
   const owner = () => { try { const id = String(userId() || '').trim(); return SNOWFLAKE.test(id) ? id : null; } catch { return null; } };
-  const mode = () => (validWebhook(hook) ? 'webhook' : token && chan ? 'channel' : token && owner() ? 'dm' : null);
+  const mode = () => {
+    const l = cur()?.alerts;
+    if (!l) return validWebhook(hook) ? 'webhook' : token && chan() ? 'channel' : token && owner() ? 'dm' : null;
+    if (l.on === false) return null;
+    if (l.to === 'webhook') return validWebhook(hook) ? 'webhook' : null;
+    if (l.to === 'channel') return token && chan() ? 'channel' : null;
+    return token && owner() ? 'dm' : null;
+  };
   let pauseUntil = 0, dmChannel = null;
 
   async function call(u, method, body, auth = true) {
@@ -94,7 +106,7 @@ export function createDiscordAlerts({ webhook = '', botToken = '', channelId = '
     if (!how) return false;
     const body = alertMessage({ ...m, url });
     if (how === 'webhook') { await call(hook, 'POST', { username: 'Sky Guide · сервер', ...body }, false); return true; }
-    let target = chan;
+    let target = chan();
     if (how === 'dm') {
       const id = owner();
       if (dmChannel?.user !== id) dmChannel = { user: id, id: (await call(`${API}/users/@me/channels`, 'POST', { recipient_id: id }))?.id };
@@ -112,22 +124,25 @@ export function createDiscordAlerts({ webhook = '', botToken = '', channelId = '
 
   /** Обновить сообщение (создать, если его нет или его удалили). true — обновилось */
   async function updateStatus(s) {
-    if (!statusChan) return false;
+    const ch = statusChan();
+    if (!ch) return false;
     const body = statusMessage({ ...s, url: site });
-    if (saved.channel === statusChan && saved.message) {
-      try { await call(`${API}/channels/${statusChan}/messages/${saved.message}`, 'PATCH', body); return true; } catch (e) { if (e.status !== 404) throw e; }
+    if (saved.channel === ch && saved.message) {
+      try { await call(`${API}/channels/${ch}/messages/${saved.message}`, 'PATCH', body); return true; } catch (e) { if (e.status !== 404) throw e; }
     }
-    const m = await call(`${API}/channels/${statusChan}/messages`, 'POST', body);
-    saved = { channel: statusChan, message: m?.id || null };
+    // Канал сменили на странице — старое сообщение убираем, чтобы в прошлом канале не висело замершее состояние
+    if (saved.channel && saved.channel !== ch && saved.message) call(`${API}/channels/${saved.channel}/messages/${saved.message}`, 'DELETE').catch(() => {});
+    const m = await call(`${API}/channels/${ch}/messages`, 'POST', body);
+    saved = { channel: ch, message: m?.id || null };
     save();
     // Закрепить, чтобы не терялось в чате; без права «Управлять сообщениями» просто не закрепится
-    if (m?.id) call(`${API}/channels/${statusChan}/pins/${m.id}`, 'PUT').catch(() => {});
+    if (m?.id) call(`${API}/channels/${ch}/pins/${m.id}`, 'PUT').catch(() => {});
     return true;
   }
 
   return {
     get enabled() { return !!mode(); },
     mode, send,
-    statusEnabled: !!statusChan, updateStatus,
+    get statusEnabled() { return !!statusChan(); }, updateStatus,
   };
 }
