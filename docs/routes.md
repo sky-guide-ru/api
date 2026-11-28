@@ -143,6 +143,7 @@
 - `GET /v1/bazaar`
 - `GET /v1/calendar`
 - `GET /v1/compare`
+- `GET /v1/election`
 - `GET /v1/flips/:kind`
 - `GET /v1/guides`
 - `GET /v1/guides/:id`

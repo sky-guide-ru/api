@@ -73,6 +73,7 @@ import { collectOwned } from '@sky-guide/core/advisor/lib/util.js';
 import { calendarBrief, bingoEvent, fiestaOutlook } from '@sky-guide/core/calendar/index.js';
 import { createMiningEvents } from '@sky-guide/core/calendar/mining.js';
 import { mountCalendarRoutes, createCalendar } from './mount/calendar.js';
+import { electionNow } from '@sky-guide/core/calendar/election-store.js';
 import { mountNewsRoutes } from './mount/news.js';
 import { createSurveyStore, mountSurveyRoutes } from './survey/index.js';
 import { mountPublicRoutes, renderIndexHtml, createGuestLimiter, publicConfig } from './public.js';
@@ -258,6 +259,7 @@ app.use('/v1', createV1({
   upgrades: (v, id) => itemUpgradeCopies(v.member, id, upgradeDeps),
   // Открытые разделы
   calendar: year => calendar(year),
+  election: () => electionNow(), // голоса, шансы, ближайшие мэры (core calendar/election-store.js)
   miningEvents: () => miningEventsNow(),
   leaderboard: q => leaderboardView(board, q),
   guides: { list: () => guideList(GUEST.member, GUEST.analysis, guideDeps), get: id => guideOne(id, GUEST.member, GUEST.analysis, guideDeps) },
@@ -1040,7 +1042,7 @@ async function main() {
   loop(async () => { if (ownerRefreshDue()) await refreshProfile(); }, 20_000, 'профиль');
   loop(async () => { await refreshAuctions(); reanalyzeForPrices(); bus.emit('prices'); }, config.auctionRefresh, 'аукцион');
   loop(async () => { await refreshEndedAuctions(); }, 60_000, 'продажи AH');
-  loop(refreshMayor, 20 * 60_000, 'мэр');
+  loop(refreshMayor, 5 * 60_000, 'мэр'); // и голоса выборов: снимок раз в 5 минут для тренда и шансов
   // Рейтинг: ники владельца, друзей и скрытых → uuid (повтор каждые 10 минут, пока не получится для всех)
   { const tryBlocked = () => resolveBoardBlocked().then(ok => { if (!ok) setTimeout(tryBlocked, 10 * 60_000).unref?.(); }); tryBlocked(); }
   // Вики: раз в сутки проверить, не правили ли страницы, по которым сверены гайды (один лёгкий запрос к API fandom)
