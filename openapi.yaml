@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Sky Guide API
-  version: 1.4.0
+  version: 1.5.0
   summary: Предметы, рынок и расчёты по Hypixel SkyBlock на русском и английском
   description: |
     Открытый API сайта [sky-guide.ru](https://sky-guide.ru). Все ответы — расчёты и переводы Sky Guide,
@@ -339,6 +339,22 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Section' }
+        '429': { $ref: '#/components/responses/Rate' }
+
+  /v1/mining-events:
+    get:
+      tags: [Справка]
+      operationId: getMiningEvents
+      summary: Ивенты майнинга сейчас
+      description: 'Что сейчас идёт в Dwarven Mines, Crystal Hollows и Glacite Mineshafts (2x Powder, Raffle, Goblin Raid…), сколько осталось и в скольких лобби. Сводка открытого трекера Soopy по лобби, где есть игроки с модами; обновляется раз в минуту. Трекер молчит — пустой список островов.'
+      parameters:
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: Ивенты по островам
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MiningEvents' }
         '429': { $ref: '#/components/responses/Rate' }
 
   /v1/leaderboard:
@@ -1832,6 +1848,47 @@ components:
                   query: { type: object, properties: { player: { type: string }, profile: { type: string } } }
                   error: { type: string }
                   code: { type: string }
+
+    MiningEvents:
+      type: object
+      required: [at, islands]
+      properties:
+        at: { type: [integer, 'null'], description: 'Время сводки, мс (null — трекер не ответил)' }
+        source: { type: string, description: Откуда данные }
+        islands:
+          type: array
+          items:
+            type: object
+            required: [id, name, lobbies, now, soon]
+            properties:
+              id: { type: string, enum: [DWARVEN_MINES, CRYSTAL_HOLLOWS, MINESHAFT] }
+              name: { type: string }
+              lobbies: { type: integer, description: Сколько лобби острова видит трекер }
+              now:
+                type: array
+                description: Идёт сейчас, сначала там, где больше лобби
+                items:
+                  type: object
+                  required: [id, name, ends, lobbies]
+                  properties:
+                    id: { type: string, example: DOUBLE_POWDER }
+                    name: { type: string, example: 2x Powder }
+                    tip: { type: [string, 'null'], description: Что делать }
+                    hot: { type: boolean, description: 'Самый выгодный ивент (2x Powder)' }
+                    ends: { type: integer, description: 'Конец, мс' }
+                    lobbies: { type: integer }
+                    double: { type: boolean }
+              soon:
+                type: array
+                description: Скоро начнётся
+                items:
+                  type: object
+                  required: [id, name, from, lobbies]
+                  properties:
+                    id: { type: string }
+                    name: { type: string }
+                    from: { type: integer, description: 'Самое раннее начало, мс' }
+                    lobbies: { type: integer }
 
     Section:
       type: object
