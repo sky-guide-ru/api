@@ -56,6 +56,7 @@ import { createDiscordBot } from './discord-bot/index.js';
 import { createDiscordEvents } from './discord-events.js';
 import { NEWS } from '@sky-guide/core/news/entries.js';
 import { enrichGuide, lexiconPhrases, refsData } from '@sky-guide/core/guides/refs.js';
+import { warpTable } from '@sky-guide/core/guides/warps.js';
 import { GUI_ITEMS } from '@sky-guide/core/lib/gui-items.js';
 import { setRiftOwner } from '@sky-guide/core/rift/marks.js';
 import { mountRiftRoutes } from './mount/rift-marks.js';
@@ -233,7 +234,7 @@ app.use('/v1', createV1({
           : kind === 'snipes' ? moneyMod.binSnipes({ maxPrice: q.max, limit: q.limit })
             : moneyMod.npcFlips({ mode: 'order' }).slice(0, q.limit)),
   },
-  lexicon: () => ({ v: neu.loadedAt || 0, ready: neu.items.size > 0, phrases: lexiconPhrases(neu.items, neu.constants) }),
+  lexicon: () => ({ v: neu.loadedAt || 0, ready: neu.items.size > 0, phrases: lexiconPhrases(neu.items, neu.constants), warps: warpTable(neu.constants) }),
   news: () => { const n = newsView(); return { latest: n.latest, entries: n.entries.map(e => ({ ...e, title: plainNews(e.title), items: e.items.map(plainNews) })) }; },
   status: () => ({ ...status.publicStatus(), prices: { bazaarAt: prices.bazaarAt || null, auctionsAt: prices.binAt || null } }),
   version: () => ({ build: buildId(), core: corePkg.version || null }),
@@ -417,7 +418,7 @@ app.get('/api/refs/lexicon', (req, res) => {
   // Пока база NEU грузится (сразу после запуска), словарь неполный: без кеша и с ready:false — клиент спросит ещё раз
   const ready = neu.items.size > 0;
   res.set('Cache-Control', ready ? 'public, max-age=3600' : 'no-store');
-  res.json({ v: neu.loadedAt || 0, ready, phrases: lexiconPhrases(neu.items, neu.constants) });
+  res.json({ v: neu.loadedAt || 0, ready, phrases: lexiconPhrases(neu.items, neu.constants), warps: warpTable(neu.constants) });
 });
 app.get('/api/refs/data', (req, res) => {
   const list = String(req.query.r || '').split('|').filter(Boolean).slice(0, 300);
