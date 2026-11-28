@@ -10,26 +10,56 @@ import { currentBonus } from '@sky-guide/core/lib/variable-stats.js';
 import { variantKey } from '@sky-guide/core/market/resale.js';
 import { tx } from '@sky-guide/core/i18n/msg.js';
 import { canSellCopy } from '@sky-guide/core/lib/item-props.js';
+import { displayName } from '@sky-guide/core/names.js';
+import { MP_BY_RARITY } from '@sky-guide/core/parse/gear.js';
 
 const RARITIES = ['COMMON', 'UNCOMMON', 'RARE', 'EPIC', 'LEGENDARY', 'MYTHIC', 'DIVINE', 'SPECIAL', 'VERY SPECIAL'];
 
 let upMemo = null;
 const upgradesFor = raw => (upMemo && upMemo.raw === raw ? upMemo : (upMemo = { raw, map: buildUpgrades(raw) })).map;
 
+const strip = s => String(s || '').replace(/§./g, '').replace(/[\uE000-\uF8FF]/g, '').replace(/[^\p{L}\p{N}\s+\-:.,%'()]/gu, ' ').replace(/\s+/g, ' ').trim();
+
+/**
+ * Что даёт ступень линейки по описанию NEU: «Mending: +9» и «Grants +17 Defense while burning» → { Mending: 9, Defense: 17 }.
+ * Accessory Power не берём: это и есть Magical Power, он считается по редкости.
+ */
+export function stepStats(lore = []) {
+  const out = {};
+  const put = (k, v) => { if (out[k] == null && Object.keys(out).length < 4 && Number.isFinite(v)) out[k] = v; };
+  for (const line of lore) {
+    const t = strip(line);
+    if (!t || /^(Accessory Power|Requires|Cost|Cooldown|Mana Cost|Kills)\b/i.test(t)) continue;
+    const m = t.match(/^([A-Z][A-Za-z' ]{1,30}): \+(\d[\d,]*(?:\.\d+)?)%?(?:\s|$)/);
+    if (m) { put(m[1].trim(), Number(m[2].replace(/,/g, ''))); continue; }
+    for (const g of t.matchAll(/\+(\d[\d,]*(?:\.\d+)?)%?\s+([A-Z][a-z]+(?: [A-Z][a-z]+){0,2})/g)) put(g[2], Number(g[1].replace(/,/g, '')));
+  }
+  return out;
+}
+
 /**
  * Линейка аксессуара: младшие и старшие версии, какие из них есть в сумке и работает ли этот экземпляр
- * (из одной линейки Magical Power даёт только старший).
+ * (из одной линейки Magical Power даёт только старший). steps — вся линейка по порядку
+ * с названием, редкостью, Magical Power и статами каждой ступени (карточка показывает, что прибавляется).
  */
-export function accessoryFamily(id, bagIds, raw) {
+export function accessoryFamily(id, bagIds, raw, items) {
   const up = upgradesFor(raw);
   const higher = up[id] || [];
-  const lower = Object.keys(up).filter(k => (up[k] || []).includes(id) && !higher.includes(k));
+  // младшие — от самой младшей: у неё больше всего старших версий
+  const lower = Object.keys(up).filter(k => (up[k] || []).includes(id) && !higher.includes(k))
+    .sort((a, b) => (up[b] || []).length - (up[a] || []).length);
   if (!higher.length && !lower.length) return null;
   const inBag = new Set(bagIds);
   const ownedHigher = higher.filter(h => inBag.has(h));
+  const step = x => {
+    const it = items?.get(x);
+    const rarity = it?.rarity || null;
+    return { id: x, name: displayName(x, items), rarity, mp: MP_BY_RARITY[rarity] || 0, stats: stepStats(it?.lore), inBag: inBag.has(x) };
+  };
   return {
     lower: lower.map(x => ({ id: x, inBag: inBag.has(x) })),
     higher: higher.map(x => ({ id: x, inBag: inBag.has(x) })),
+    steps: [...lower, id, ...higher].map(step),
     active: !ownedHigher.length,
     coveredBy: ownedHigher[0] || null,
     duplicates: lower.filter(x => inBag.has(x)),
@@ -71,7 +101,7 @@ export function itemUpgradeCopies(member, id, deps) {
         museum: !!it.museum, sellable: canSellCopy(it),
         market: lot ? { price: lot.price, count: lot.count || 0, recomb: !!it.recomb, stars: Number(it.stars || 0) } : null,
         bonus: currentBonus(it.id, it.lore || []),
-        family: plan.kind === 'accessory' ? accessoryFamily(it.id, bagIds, neu.constants?.misc?.talisman_upgrades) : null,
+        family: plan.kind === 'accessory' ? accessoryFamily(it.id, bagIds, neu.constants?.misc?.talisman_upgrades, neu.items) : null,
         // абзацами: многострочные описания переводятся словарём целиком, построчно они остаются на английском
         loreRu: translateLore ? translateLore(it.lore || []).lines : (it.lore || []).map(l => translateLoreLine(l)), plan,
       });

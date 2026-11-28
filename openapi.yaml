@@ -1862,7 +1862,7 @@ components:
               museum: { type: boolean, description: Сдан в Museum и одолжен обратно (Co-op Soulbound) }
               sellable: { type: boolean, description: 'Можно ли продать или передать этот экземпляр: нет, если он в Museum или Soulbound' }
               market: { type: [object, 'null'], additionalProperties: true, description: Похожие лоты аукциона (те же звёзды и Recombobulator) }
-              family: { type: [object, 'null'], additionalProperties: true, description: Для аксессуара — линейка и дубли в сумке }
+              family: { type: [object, 'null'], additionalProperties: true, description: Для аксессуара — линейка (steps — все ступени по порядку с name, rarity, mp, stats), дубли в сумке }
               plan: { type: object, additionalProperties: true, description: Чек-лист улучшений с ценами }
 
     Compare:

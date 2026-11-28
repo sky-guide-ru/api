@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { makeQuote } from '@sky-guide/core/market/quote.js';
 import { darkAuctionOf } from '@sky-guide/core/analysis/dark-auction.js';
 import { variableInfo, currentBonus } from '@sky-guide/core/lib/variable-stats.js';
-import { accessoryFamily } from '../src/routes/item-upgrades.js';
+import { accessoryFamily, stepStats } from '../src/routes/item-upgrades.js';
 import { buildObtainGuide } from '@sky-guide/core/analysis/obtain.js';
 
 test('котировка Bazaar: купить — Instant Buy, продать — Instant Sell', () => {
@@ -75,6 +75,21 @@ test('линейка аксессуара: старшая версия в сум
   assert.equal(top.active, true);
   assert.deepEqual(top.duplicates, ['ENDER_ARTIFACT']);
   assert.equal(accessoryFamily('X', [], raw), null);
+});
+
+test('линейка аксессуара: ступени по порядку с названием, редкостью, Magical Power и статами', () => {
+  const raw = { C_1: ['C_2', 'C_3'], C_2: ['C_3'] };
+  const items = new Map([
+    ['C_1', { name: 'Camp I', rarity: 'RARE', lore: ['§7Accessory Power: §6+8', '§7Grants §a+16\ue008 Defense §7while burning.'] }],
+    ['C_2', { name: 'Camp II', rarity: 'EPIC', lore: ['§7Grants §a+17\ue008 Defense §7while burning.'] }],
+    ['C_3', { name: 'Camp III', rarity: 'LEGENDARY', lore: ['§7Mending: §a+9', '§7Grants §a+29\ue008 Defense §7while burning.'] }],
+  ]);
+  const f = accessoryFamily('C_2', ['C_2'], raw, items);
+  assert.deepEqual(f.steps.map(s => s.id), ['C_1', 'C_2', 'C_3']);
+  assert.deepEqual(f.steps.map(s => s.mp), [8, 12, 16]);
+  assert.deepEqual(f.steps[2].stats, { Mending: 9, Defense: 29 });
+  assert.equal(f.steps[1].inBag, true);
+  assert.deepEqual(stepStats(['§7Strength: §c+5', '§7Gives §a+3 Crit Damage§7.']), { Strength: 5, 'Crit Damage': 3 });
 });
 
 test('свойства предмета: продажа NPC, обмен, аукцион, музей и строка «откуда» от Hypixel', async () => {
