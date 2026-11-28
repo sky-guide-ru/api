@@ -170,8 +170,14 @@ const status = createStatus({
   apis: () => apiStats.snapshot(), apiKey: config.apiKey, keySince: () => keySince(config.dataDir, config.apiKey),
 });
 app.use(status.track); // счётчик запросов для панели состояния
-// Тревоги и сводка — ещё и в закрытый канал Discord (DISCORD_ALERTS_WEBHOOK в .env; пусто — только почта)
-const discordAlerts = createDiscordAlerts({ webhook: process.env.DISCORD_ALERTS_WEBHOOK, siteUrl: String(process.env.SITE_URL || '') });
+// Тревоги о серьёзных сбоях — ещё и в Discord: webhook, канал бота или личные сообщения владельцу от бота
+// (Discord, привязанный к нику владельца в #verify). Плюс живое сообщение «состояние сайта» (DISCORD_STATUS_CHANNEL_ID)
+const discordAlerts = createDiscordAlerts({
+  webhook: process.env.DISCORD_ALERTS_WEBHOOK, botToken: process.env.DISCORD_BOT_TOKEN, channelId: process.env.DISCORD_ALERTS_CHANNEL_ID,
+  userId: () => process.env.DISCORD_ALERTS_USER_ID || (state.player?.uuid ? discordLinks.byUuid(state.player.uuid) || discordLinks.byUuid(state.player.uuid.replace(/-/g, '')) : null),
+  statusChannelId: process.env.DISCORD_STATUS_CHANNEL_ID, statusFile: path.join(config.dataDir, 'discord-status.json'),
+  siteUrl: String(process.env.SITE_URL || ''),
+});
 // Свой учёт посещений и ошибок (без внешних сервисов, IP не сохраняется) и тревоги на почту владельцу — server/monitor
 const monitor = createMonitor({
   dataDir: config.dataDir, tz: process.env.LIVE_TZ || 'Europe/Moscow',
@@ -183,7 +189,7 @@ const monitor = createMonitor({
   // Владелец, его кооп, друзья с аккаунтом и скрытые игроки в статистику ников не попадают
   // Кооп владельца в списке соседей есть только по uuid — сверяем и его
   excludedNick: (n, uuid) => excludedFromStats({ name: n, uuid }),
-  notify: discordAlerts, digestExtra: () => perf.digestLines(),
+  notify: discordAlerts,
 });
 app.use(monitor.track5xx);
 // Скорость и нагрузка по часам: время ответа каждого адреса, кэш профилей, расход ключа Hypixel, CPU, память, диск, вес сайта
@@ -633,8 +639,8 @@ app.post('/api/admin/monitor/test-mail', auth.requireAdmin, async (req, res) => 
   } catch (e) { res.json({ ok: false, error: String(e.message || e).slice(0, 200) }); }
 });
 app.post('/api/admin/monitor/test-discord', auth.requireAdmin, async (req, res) => {
-  if (!discordAlerts.enabled) return res.json({ ok: false, error: 'Discord не настроен: впиши в .env DISCORD_ALERTS_WEBHOOK (webhook закрытого канала) и перезапусти сайт' });
-  try { res.json({ ok: await discordAlerts.send({ title: 'Проверка: тревоги и сводка будут приходить сюда', text: `Как выглядит ежедневная сводка:\n\n${monitor.digestText()}`, kind: 'test' }) }); } catch (e) { res.json({ ok: false, error: String(e.message || e).slice(0, 200) }); }
+  if (!discordAlerts.enabled) return res.json({ ok: false, error: 'Discord не настроен: нужен бот (DISCORD_BOT_TOKEN) и привязка Discord владельца в #verify, или DISCORD_ALERTS_CHANNEL_ID, или DISCORD_ALERTS_WEBHOOK' });
+  try { res.json({ ok: await discordAlerts.send({ title: 'Проверка: тревоги о сбоях будут приходить сюда', text: 'Сюда придёт сообщение, только если с сайтом что-то серьёзно не так: упал, почти не отвечает, кончается память или диск, Hypixel не принимает ключ.', kind: 'test' }), mode: discordAlerts.mode() }); } catch (e) { res.json({ ok: false, error: String(e.message || e).slice(0, 200) }); }
 });
 
 // Прямая отправка писем: какие DNS-записи нужны и какие уже есть (docs/mail.md)
@@ -1067,7 +1073,18 @@ async function main() {
   if (process.env.WIKI_WATCH !== '0') setTimeout(() => loop(refreshWiki, 24 * 3600_000, 'вики'), 2 * 60_000); // выборы: голоса меняются, мэр сменяется раз в ~5 суток
   for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { keyUsage.flush(); try { apiKeys.flush(); } catch { /* не записали счётчики ключей — не страшно */ } saveHistory(true); charts.closeSync(); board.flush(); monitor.flush(); perf.flush(); process.exit(0); });
   monitor.start(); // тревоги раз в минуту и сводка на почту в 9 утра
-  perf.start(); // снимок нагрузки раз в минуту и тревоги по скорости, памяти, CPU, диску и ключу Hypixel
+  perf.start(); // снимок нагрузки раз в минуту и тревоги о серьёзных сбоях (скорость, память, CPU, диск, пауза ключа Hypixel)
+  // Живое сообщение «состояние сайта» в Discord — правится раз в минуту
+  if (discordAlerts.statusEnabled) {
+    const pushStatus = () => {
+      const a = status.adminStatus(), w = perf.windowStats(), hr = perf.period(1);
+      discordAlerts.updateStatus({ load: a.load, why: a.why, uptimeSec: a.uptimeSec, perHour: hr.requests, p95: w.p95 ?? hr.p95, e5: w.e5,
+        hypixel: { used5m: a.hypixel.used5m, limit: a.hypixel.limit5m, paused: !!a.hypixel.paused }, cpu: a.cpu.server, at: Date.now() })
+        .catch(e => console.warn('[discord: состояние]', e.message));
+    };
+    setTimeout(pushStatus, 30_000).unref?.();
+    setInterval(pushStatus, 60_000).unref?.();
+  }
   // Через 4 минуты (когда есть Bazaar и первый скан аукциона) — дозаполнить прошлую неделю истории с Coflnet, потом раз в сутки
   const fill = () => backfillHistory(prices, { onSave: () => saveHistory(true) }).catch(e => console.warn('[история цен]', e.message));
   if (process.env.PRICE_BACKFILL !== '0') { setTimeout(fill, 4 * 60_000); setInterval(fill, 24 * 3600_000); }

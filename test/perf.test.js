@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createPerf, perfRoute, latPercentile, pageWeight, LIMITS } from '../src/monitor/perf.js';
-import { createDiscordAlerts, alertMessage } from '../src/monitor/discord.js';
+import { createDiscordAlerts, alertMessage, statusMessage } from '../src/monitor/discord.js';
 import { createMonitor } from '../src/monitor/index.js';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'sb-perf-'));
@@ -79,7 +79,7 @@ test('новый день по UTC: расход Hypixel считается с �
 
 test('медленно отвечает весь сайт → одна тревога со списком медленных адресов', async () => {
   const t = make();
-  for (let i = 0; i < 200; i++) t.p.record(i % 2 ? '/api/state' : '/api/market/money', 2000, 200);
+  for (let i = 0; i < 400; i++) t.p.record(i % 2 ? '/api/state' : '/api/market/money', 4000, 200);
   await t.p.tick();
   const a = t.alerts.find(x => x.key === 'perf-slow');
   assert.ok(a, 'нет тревоги');
@@ -90,39 +90,38 @@ test('медленно отвечает весь сайт → одна трев�
   assert.equal(t.alerts.filter(x => x.key.startsWith('perf-slow')).length, 0);
 });
 
-test('один медленный адрес при быстром остальном сайте — тревога только о нём', async () => {
+test('один медленный адрес при быстром остальном сайте — не будит', async () => {
   const t = make();
   for (let i = 0; i < 1500; i++) t.p.record('/api/state', 60, 200);
   for (let i = 0; i < 50; i++) t.p.record('/api/compare', 5000, 200);
   await t.p.tick();
-  assert.ok(t.alerts.some(x => x.key === 'perf-route:/api/compare'));
-  assert.ok(!t.alerts.some(x => x.key === 'perf-slow'));
+  assert.equal(t.alerts.length, 0);
 });
 
 test('память, CPU и задержка — тревога только когда держится несколько минут подряд', async () => {
-  const t = make({ sample: { rssMb: 1450, cpu: 95, lagMs: 600 } });
+  const t = make({ sample: { rssMb: 1500, cpu: 97, lagMs: 1500 } });
   for (let i = 0; i < LIMITS.memMinutes - 1; i++) { t.set(T0 + i * 60_000); await t.p.tick(); }
   assert.ok(!t.alerts.some(x => x.key === 'perf-mem'));
   t.set(T0 + 10 * 60_000); await t.p.tick();
   assert.ok(t.alerts.some(x => x.key === 'perf-mem'));
-  for (let i = 0; i < 10; i++) { t.set(T0 + (11 + i) * 60_000); await t.p.tick(); }
+  for (let i = 0; i < 15; i++) { t.set(T0 + (11 + i) * 60_000); await t.p.tick(); }
   assert.ok(t.alerts.some(x => x.key === 'perf-cpu'));
   assert.ok(t.alerts.some(x => x.key === 'perf-lag'));
   // Одна хорошая минута сбрасывает счёт
-  const t2 = make({ sample: { cpu: 95 } });
-  for (let i = 0; i < 20; i++) { t2.setSample({ cpu: i % 5 === 4 ? 30 : 95 }); t2.set(T0 + i * 60_000); await t2.p.tick(); }
+  const t2 = make({ sample: { cpu: 97 } });
+  for (let i = 0; i < 40; i++) { t2.setSample({ cpu: i % 10 === 9 ? 30 : 97 }); t2.set(T0 + i * 60_000); await t2.p.tick(); }
   assert.ok(!t2.alerts.some(x => x.key === 'perf-cpu'));
 });
 
-test('диск, свободная память VPS, ключ Hypixel и пауза 429 — тревоги сразу', async () => {
-  const t = make({ sample: { disk: { totalGb: 40, usedGb: 38, freeGb: 2 }, freeMb: 150, keyed5m: 270, paused: { until: T0 + 300_000, at: T0, daily: false } } });
+test('диск, свободная память VPS и пауза 429 — тревоги сразу; 90% ключа Hypixel — не будит', async () => {
+  const t = make({ sample: { disk: { totalGb: 40, usedGb: 38.5, freeGb: 1.5 }, freeMb: 100, keyed5m: 270, paused: { until: T0 + 300_000, at: T0, daily: false } } });
   await t.p.tick();
   const keys = t.alerts.map(a => a.key);
-  for (const k of ['perf-disk', 'perf-freemem', 'perf-hypixel', `perf-429:${T0}`]) assert.ok(keys.includes(k), k);
-  assert.ok(!t.alerts.some(a => /объедин.*можно/i.test(a.text)), 'не советуем объединять ключи');
+  for (const k of ['perf-disk', 'perf-freemem', `perf-429:${T0}`]) assert.ok(keys.includes(k), k);
+  assert.ok(!keys.includes('perf-hypixel'));
 });
 
-test('вес сайта: первая загрузка из index.html, тревога, если сборка потяжелела', async () => {
+test('вес сайта: первая загрузка из index.html, новая сборка видна в итоге, но не будит', async () => {
   const dir = tmp();
   fs.mkdirSync(path.join(dir, 'assets'));
   const rnd = n => Array.from({ length: n }, (_, i) => `const v${i}=${(i * 7919) % 104729};`).join('\n');
@@ -141,7 +140,9 @@ test('вес сайта: первая загрузка из index.html, трев
   fs.writeFileSync(path.join(dir, 'index.html'), '<script type="module" src="/assets/index-CCCCCC33.js"></script><link rel="stylesheet" href="/assets/index-BBBBBB22.css">');
   const later = new Date(Date.now() + 5000); fs.utimesSync(path.join(dir, 'index.html'), later, later);
   t.set(T0 + 11 * 60_000); await t.p.tick();
-  assert.ok(t.alerts.some(a => a.key.startsWith('perf-weight:')));
+  assert.equal(t.alerts.length, 0);
+  assert.notEqual(t.p.summary().weight.id, w.id);
+  assert.equal(t.p.summary().weightPrev.id, w.id);
   assert.match(t.p.digestLines().join('\n'), /Вес первой загрузки/);
   assert.equal(pageWeight(path.join(dir, 'нет')), null);
 });
@@ -175,40 +176,75 @@ test('middleware: оборванный посетителем запрос не 
   assert.equal(t.p.period(1).requests, 1);
 });
 
-test('Discord: карточка без упоминаний, обрезка длинного текста, неверный webhook — выключено', async () => {
+test('Discord: карточка без упоминаний, обрезка; куда идут тревоги — webhook, канал бота или личка владельцу', async () => {
   const m = alertMessage({ title: 'x'.repeat(300), text: '@everyone ' + 'y'.repeat(5000) });
   assert.deepEqual(m.allowed_mentions, { parse: [] });
   assert.equal(m.embeds[0].title.length, 256);
   assert.ok(m.embeds[0].description.length <= 4000);
   assert.equal(createDiscordAlerts({ webhook: 'https://evil.example/hook' }).enabled, false);
   const sent = [];
-  const d = createDiscordAlerts({ webhook: 'https://discord.com/api/webhooks/123/abc-DEF', siteUrl: 'https://site.ru/', fetchFn: async (url, o) => { sent.push({ url, body: JSON.parse(o.body) }); return { ok: true, status: 204 }; } });
-  assert.equal(d.enabled, true);
-  assert.equal(await d.send({ title: 'T', text: 'текст', kind: 'digest' }), true);
+  const fetchFn = async (url, o) => { sent.push({ url, method: o.method, auth: o.headers.Authorization, body: o.body ? JSON.parse(o.body) : null }); return { ok: true, status: 200, json: async () => ({ id: '111111111111111111' }) }; };
+  const wh = createDiscordAlerts({ webhook: 'https://discord.com/api/webhooks/123/abc-DEF', siteUrl: 'https://site.ru/', fetchFn });
+  assert.equal(wh.mode(), 'webhook');
+  assert.equal(await wh.send({ title: 'T', text: 'текст' }), true);
   assert.equal(sent[0].body.embeds[0].url, 'https://site.ru/#/status');
+  assert.equal(sent[0].auth, undefined);
+  sent.length = 0;
+  let owner = null;
+  const bot = createDiscordAlerts({ botToken: 'tok', userId: () => owner, fetchFn });
+  assert.equal(bot.enabled, false, 'без привязки владельца слать некуда');
+  owner = '222222222222222222';
+  assert.equal(bot.mode(), 'dm');
+  await bot.send({ title: 'T', text: '' });
+  await bot.send({ title: 'T2', text: '' });
+  assert.equal(sent.filter(x => x.url.endsWith('/users/@me/channels')).length, 1, 'личный канал открывается один раз');
+  assert.ok(sent.at(-1).url.endsWith('/channels/111111111111111111/messages'));
+  assert.equal(sent.at(-1).auth, 'Bot tok');
+  assert.equal(createDiscordAlerts({ botToken: 'tok', channelId: '333333333333333333', fetchFn }).mode(), 'channel');
   const busy = createDiscordAlerts({ webhook: 'https://discord.com/api/webhooks/1/a', fetchFn: async () => ({ ok: false, status: 429, json: async () => ({ retry_after: 2 }) }) });
   await assert.rejects(busy.send({ title: 'T', text: '' }), /подождать/);
 });
 
-test('monitor: тревога и сводка уходят и на почту, и в Discord; без почты сводка идёт только в Discord', async () => {
+test('Discord: живое сообщение о состоянии создаётся один раз, дальше правится; удалили — создаётся заново', async () => {
+  const dir = tmp(), calls = [];
+  let gone = false;
+  const fetchFn = async (url, o) => {
+    calls.push({ url, method: o.method, body: o.body ? JSON.parse(o.body) : null });
+    if (o.method === 'PATCH' && gone) return { ok: false, status: 404, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => ({ id: '444444444444444444' }) };
+  };
+  const mk = () => createDiscordAlerts({ botToken: 'tok', statusChannelId: '555555555555555555', statusFile: path.join(dir, 's.json'), fetchFn });
+  const s = { load: 'low', why: 'всё спокойно', uptimeSec: 7200, perHour: 4500, p95: 200, e5: 0, hypixel: { used5m: 120, limit: 300, paused: false }, cpu: 30, at: T0 };
+  const d = mk();
+  assert.equal(d.statusEnabled, true);
+  await d.updateStatus(s);
+  assert.equal(calls.filter(c => c.method === 'POST').length, 1);
+  const text = calls[0].body.embeds[0].description;
+  assert.match(text, /4 500/);
+  assert.match(text, /40% лимита/);
+  assert.match(text, /<t:\d+:R>/);
+  await mk().updateStatus(s); // после перезапуска — правит то же сообщение
+  assert.ok(calls.some(c => c.method === 'PATCH' && c.url.endsWith('/messages/444444444444444444')));
+  gone = true; calls.length = 0;
+  await d.updateStatus(s);
+  assert.ok(calls.some(c => c.method === 'POST' && c.url.endsWith('/channels/555555555555555555/messages')));
+  assert.match(statusMessage({ ...s, hypixel: { ...s.hypixel, paused: true } }).embeds[0].description, /на паузе/);
+  assert.equal(createDiscordAlerts({ statusChannelId: '555555555555555555' }).statusEnabled, false, 'без бота не включается');
+});
+
+test('monitor: тревога уходит и на почту, и в Discord; сводка и лимит ИИ — только на почту', async () => {
   const dir = tmp();
   let now = Date.parse('2026-11-28T05:00:00Z'); // 10:00 по Екатеринбургу
   const mails = [], discord = [];
   const notify = { enabled: true, send: async m => { discord.push(m); return true; } };
-  const m = createMonitor({ dataDir: dir, clock: () => now, tz: 'Asia/Yekaterinburg', sendMail: async x => { mails.push(x); return true; }, mailInfo: () => ({ configured: true }), notify, digestExtra: () => ['Скорость и нагрузка за последние сутки', 'Запросов к серверу: 5'] });
+  const m = createMonitor({ dataDir: dir, clock: () => now, tz: 'Asia/Yekaterinburg', sendMail: async x => { mails.push(x); return true; }, mailInfo: () => ({ configured: true }), notify });
   await m.alert('perf-disk', 'Мало места', 'Свободно 2 ГБ');
   assert.equal(mails.length, 1);
   assert.equal(discord.length, 1);
-  assert.equal(discord[0].kind, 'alert');
+  await m.alert('ai:2026-11-28', 'Лимит ИИ', '…');
+  assert.equal(discord.length, 1);
   await m.check();
-  const digest = discord.find(x => x.kind === 'digest');
-  assert.ok(digest, 'сводка в Discord');
-  assert.match(digest.text, /Запросов к серверу: 5/);
   assert.ok(mails.some(x => /Сводка/.test(x.subject)));
+  assert.equal(discord.length, 1, 'сводка в Discord не идёт');
   assert.equal(m.summary().discord.configured, true);
-
-  const discord2 = [];
-  const m2 = createMonitor({ dataDir: tmp(), clock: () => now, tz: 'Asia/Yekaterinburg', mailInfo: () => ({ configured: false }), notify: { enabled: true, send: async x => { discord2.push(x); return true; } } });
-  await m2.check();
-  assert.ok(discord2.some(x => x.kind === 'digest'));
 });
