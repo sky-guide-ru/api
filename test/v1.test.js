@@ -101,6 +101,7 @@ function makeDeps(over = {}) {
         summary: { coins: 9e8, sold: 1, expired: 0, active: 1, undercut: 1, outbid: 1, bids: 1 } };
     },
     calendar: year => ({ year: year ? Number(year) : 400, mayor: { name: 'Diana' }, money: [] }),
+    election: () => ({ now: 1, year: 528, open: true, opens: 0, closes: 2, termEnd: 2, mayor: { key: 'cole', name: 'Cole' }, candidates: [{ key: 'paul', name: 'Paul', votes: 10, pct: 100, chance: 1, chanceText: '>99%' }], timeline: [], nextFor: {}, odds: [], history: { elections: 0 } }),
     miningEvents: async () => ({ at: 5, source: 'Soopy', islands: [{ id: 'DWARVEN_MINES', name: 'Dwarven Mines', lobbies: 7, now: [{ id: 'DOUBLE_POWDER', name: '2x Powder', tip: 'Весь Powder ×2', hot: true, ends: 9, lobbies: 5, double: false }], soon: [{ id: 'RAFFLE', name: 'Raffle', from: 12, lobbies: 3 }] }], fiesta: { updatedAt: 1, now: null, election: { open: true, opens: 1, closes: 2, year: 5, leader: { name: 'Paul', pct: 60 }, cole: { pct: 40, place: 2, fiesta: true, ministerFiesta: true } }, next: { from: 2, to: 3 } } }),
     leaderboard: q => { calls.push(['leaderboard', q]); return { board: q.board, rows: [{ rank: 1, name: 'Steve', value: 1e9 }], mode: q.mode, tracked: 1, boards: [{ id: 'networth', label: 'Networth' }] }; },
     guides: { list: () => ({ groups: [{ id: 'combat', title: 'Combat' }], guest: true, guides: [{ id: 'dungeons', title: 'Dungeons' }] }), get: id => (id === 'dungeons' ? { id, title: 'Dungeons', sections: [] } : null) },
@@ -355,6 +356,7 @@ test('сравнение: до 4 игроков, ошибка одного не 
 
 test('разделы сайта без ключа: календарь, лидерборды, гайды, цены, рынок, картинки', () => withV1({}, async (base, d) => {
   await get(base, '/v1/calendar?year=401', '/v1/calendar');
+  assert.equal((await get(base, '/v1/election', '/v1/election')).body.candidates[0].name, 'Paul');
   const me = await get(base, '/v1/mining-events', '/v1/mining-events');
   assert.equal(me.body.islands[0].now[0].name, '2x Powder');
   const lb = await get(base, '/v1/leaderboard?board=skills&mode=ironman&limit=500', '/v1/leaderboard');

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Sky Guide API
-  version: 1.5.0
+  version: 1.6.0
   summary: Предметы, рынок и расчёты по Hypixel SkyBlock на русском и английском
   description: |
     Открытый API сайта [sky-guide.ru](https://sky-guide.ru). Все ответы — расчёты и переводы Sky Guide,
@@ -355,6 +355,23 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/MiningEvents' }
+        '429': { $ref: '#/components/responses/Rate' }
+
+  /v1/election:
+    get:
+      tags: [Справка]
+      operationId: getElection
+      summary: Выборы мэра
+      description: |
+        Голоса кандидатов на текущих выборах (как таблица у Election Booth), изменение доли за 3 часа и примерный шанс победы,
+        лента ближайших мэров с датами, когда каждый мэр может быть снова, и как часто мэры побеждают по истории выборов.
+        Шанс считается по голосам, тренду и времени до итогов; пока кандидатов нет, `candidates` = null.
+      responses:
+        '200':
+          description: Выборы
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Election' }
         '429': { $ref: '#/components/responses/Rate' }
 
   /v1/leaderboard:
@@ -1941,6 +1958,40 @@ components:
       type: object
       additionalProperties: true
       description: Ответ раздела сайта — те же поля, что получает страница этого раздела.
+
+    Election:
+      type: object
+      required: [now, open, opens, closes, termEnd, timeline, nextFor, odds]
+      additionalProperties: true
+      properties:
+        now: { type: integer, description: 'Время ответа, мс' }
+        year: { type: [integer, 'null'], description: Год выборов по Hypixel }
+        open: { type: boolean, description: Идёт ли голосование }
+        opens: { type: integer, description: 'Открытие выборов, мс' }
+        closes: { type: integer, description: 'Итоги выборов, мс' }
+        termEnd: { type: integer, description: 'Смена мэра, мс' }
+        mayor: { type: [object, 'null'], additionalProperties: true }
+        minister: { type: [object, 'null'], additionalProperties: true }
+        candidates:
+          type: [array, 'null']
+          items:
+            type: object
+            required: [key, name, votes, pct, chance]
+            additionalProperties: true
+            properties:
+              key: { type: string }
+              name: { type: string }
+              votes: { type: integer }
+              pct: { type: number, description: 'Доля голосов, %' }
+              trend: { type: [number, 'null'], description: 'Изменение доли за 3 часа, п. п.' }
+              chance: { type: number, description: 'Примерный шанс победы, 0..1' }
+              chanceText: { type: string }
+              isNew: { type: boolean, description: Мэра нет в истории выборов }
+              why: { type: [string, 'null'], description: Почему такой шанс }
+        timeline: { type: array, items: { type: object, additionalProperties: true }, description: 'Ближайшие мэры: now, next, election, special' }
+        nextFor: { type: object, additionalProperties: true, description: Когда каждый мэр может быть снова }
+        odds: { type: array, items: { type: object, additionalProperties: true }, description: Как часто мэры побеждают по истории }
+        history: { type: object, additionalProperties: true }
 
     GuideList:
       type: object
