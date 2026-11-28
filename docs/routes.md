@@ -66,12 +66,16 @@
 
 ## /api/admin
 
+- `GET /api/admin/discord`
 - `GET /api/admin/feedback`
 - `GET /api/admin/feedback/:id/shot`
 - `GET /api/admin/leaderboard/removed`
 - `GET /api/admin/mail/check`
 - `GET /api/admin/monitor`
 - `GET /api/admin/status`
+- `POST /api/admin/discord/feature/:id/channel`
+- `POST /api/admin/discord/feature/:id/roles`
+- `POST /api/admin/discord/test`
 - `POST /api/admin/feedback-test`
 - `POST /api/admin/feedback/:id/delete`
 - `POST /api/admin/feedback/:id/resend`
@@ -79,6 +83,8 @@
 - `POST /api/admin/monitor/resolve`
 - `POST /api/admin/monitor/test-discord`
 - `POST /api/admin/monitor/test-mail`
+- `PUT /api/admin/discord/feature/:id`
+- `PUT /api/admin/discord/guild`
 
 ## /api/docs
 

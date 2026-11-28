@@ -1,5 +1,5 @@
-// Новости сайта и патчноуты SkyBlock — в канал Discord через webhook (DISCORD_NEWS_WEBHOOK в .env).
-// Без переменной ничего не делает. Что уже отправлено, помним в data/discord-news.json, чтобы после
+// Новости сайта и патчноуты SkyBlock — в канал Discord: от имени бота в канал со страницы «Discord-бот»
+// или через webhook (DISCORD_NEWS_WEBHOOK в .env). Ни того ни другого — ничего не делает. Что уже отправлено, помним в data/discord-news.json, чтобы после
 // перезапуска не повторять. Первый запуск: в канал уходит только самая свежая новость сайта, старые
 // новости и уже вышедшие патчноуты просто запоминаются (без потока сообщений в канал).
 import fs from 'node:fs';
@@ -12,6 +12,25 @@ const PATCH_COLOR = 0xfacc15;
 const KEEP = 200; // сколько отправленных id хранить (новостей меньше, патчноуты старше 8 последних не вернутся)
 
 export const validWebhook = url => WEBHOOK.test(String(url || '').trim());
+
+const API = 'https://discord.com/api/v10';
+const SNOWFLAKE = /^\d{17,20}$/;
+const val = x => String((typeof x === 'function' ? x() : x) || '').trim();
+
+/**
+ * Куда отправлять: канал от имени бота (выбран на странице «Discord-бот») или, как раньше, webhook из .env.
+ * webhook, channel и on могут быть функциями — тогда читаются при каждой отправке. → { url, headers, ch? } | null
+ */
+export function makeTarget({ webhook = '', channel = '', botToken = '', on = null } = {}) {
+  const token = String(botToken || '').trim();
+  return () => {
+    if (on && on() === false) return null;
+    const ch = val(channel);
+    if (token && SNOWFLAKE.test(ch)) return { ch, url: `${API}/channels/${ch}/messages`, headers: { 'Content-Type': 'application/json', Authorization: `Bot ${token}` } };
+    const hook = val(webhook);
+    return validWebhook(hook) ? { url: `${hook}?wait=true`, hook, headers: { 'Content-Type': 'application/json' } } : null;
+  };
+}
 
 /** Ссылки новостей [название](раздел#блок) → markdown-ссылки Discord на раздел сайта */
 export function discordText(s, base) {
@@ -60,13 +79,12 @@ function fileStore(file) {
 }
 
 /**
- * @param {{ webhook?: string, siteUrl?: string, file?: string, store?: { load: Function, save: Function },
+ * @param {{ webhook?: string|Function, channel?: string|Function, botToken?: string, on?: () => boolean, siteUrl?: string, file?: string, store?: { load: Function, save: Function },
  *   news?: object[], patches?: () => object[]|null, translate?: (s: string) => string,
  *   fetchFn?: typeof fetch, log?: Console }} o
  */
 export function createDiscordNews(o = {}) {
-  const webhook = String(o.webhook || '').trim();
-  const enabled = validWebhook(webhook);
+  const target = makeTarget(o);
   const siteUrl = String(o.siteUrl || 'https://sky-guide.ru').replace(/\/$/, '');
   const store = o.store || (o.file ? fileStore(o.file) : { load: () => null, save: () => {} });
   const news = o.news || NEWS, patches = o.patches || (() => null);
@@ -74,8 +92,10 @@ export function createDiscordNews(o = {}) {
   let busy = false, pauseUntil = 0;
 
   async function post(body) {
-    const r = await fetchFn(`${webhook}?wait=true`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000),
+    const t = target();
+    if (!t) throw new Error('канал новостей не выбран');
+    const r = await fetchFn(t.url, {
+      method: 'POST', headers: t.headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000),
     });
     if (r.status === 429) {
       let wait = 60;
@@ -88,7 +108,7 @@ export function createDiscordNews(o = {}) {
 
   /** Отправить то, чего ещё не было. Возвращает число отправленных сообщений */
   async function tick() {
-    if (!enabled || busy || Date.now() < pauseUntil) return 0;
+    if (!target() || busy || Date.now() < pauseUntil) return 0;
     busy = true;
     let sent = 0;
     try {
@@ -115,5 +135,5 @@ export function createDiscordNews(o = {}) {
     return sent;
   }
 
-  return { enabled, tick };
+  return { get enabled() { return !!target(); }, tick };
 }

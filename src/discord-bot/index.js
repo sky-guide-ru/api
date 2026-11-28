@@ -130,12 +130,15 @@ export function createDiscordBot(o) {
     const l = T[lang].link;
     const say = content => ({ reply: { type: 4, data: { content, flags: EPHEMERAL, allowed_mentions: { parse: [] } } } });
     const id = userOf(body)?.id;
-    if (!o.link || !o.unlink || !id) return say(l.off);
+    if (!linkOn() || !o.unlink || !id) return say(l.off);
     const nick = String(opts.nick || '').trim().replace(/^@+/, '');
     if (name === 'link' && !NICK.test(nick)) return say(T[lang].badName);
     if (name === 'link' && o.allowLink && !o.allowLink(id)) return say(l.rate);
     return { reply: { type: 5, data: { flags: EPHEMERAL } }, after: () => runLink(body, lang, name, nick) };
   }
+
+  // Привязка включена (страница «Discord-бот»: роль выбрана, верификация не выключена)
+  function linkOn() { return !!o.link && o.linkEnabled?.() !== false; }
 
   // ---------- Сообщение с кнопкой верификации ----------
   const botHeaders = () => ({ 'Content-Type': 'application/json', Authorization: `Bot ${token}` });
@@ -157,9 +160,9 @@ export function createDiscordBot(o) {
 
   /** Канал верификации: DISCORD_VERIFY_CHANNEL_ID или текстовый канал сервера с «verify» в названии */
   async function verifyChannel() {
-    const set = String(env.DISCORD_VERIFY_CHANNEL_ID || '').trim();
+    const set = String(o.verifyChannelId?.() || env.DISCORD_VERIFY_CHANNEL_ID || '').trim();
     if (/^\d{5,25}$/.test(set)) return set;
-    const guild = String(env.DISCORD_GUILD_ID || '').trim();
+    const guild = String(o.guildId?.() || env.DISCORD_GUILD_ID || '').trim();
     if (!/^\d{5,25}$/.test(guild)) return null;
     const r = await doFetch(`${API}/guilds/${guild}/channels`, { headers: botHeaders() });
     if (!r.ok) return null;
@@ -172,7 +175,7 @@ export function createDiscordBot(o) {
    * Нет сообщения или под ним появились другие — ставим заново (старое удаляем); поменялся текст — правим на месте.
    */
   async function ensurePanel() {
-    if (!enabled || !token || !o.link) return 'off';
+    if (!enabled || !token || !linkOn() || o.verifyOn?.() === false) return 'off';
     const channel = await verifyChannel();
     if (!channel) return 'no-channel';
     const cur = readPanel();
@@ -224,11 +227,12 @@ export function createDiscordBot(o) {
     if (body?.type === PING) return { reply: { type: 1 } };
     const lang = langOf(body?.locale);
     if (body?.type === AUTOCOMPLETE) return { reply: autocomplete(body, lang) };
-    if (body?.type === COMPONENT && body.data?.custom_id === VERIFY_ID) return { reply: o.link ? verifyModal(lang) : { type: 4, data: { content: T[lang].link.off, flags: EPHEMERAL } } };
+    if (body?.type === COMPONENT && body.data?.custom_id === VERIFY_ID) return { reply: linkOn() ? verifyModal(lang) : { type: 4, data: { content: T[lang].link.off, flags: EPHEMERAL } } };
     if (body?.type === COMPONENT && body.data?.custom_id === UNLINK_ID) return linkCommand(body, 'unlink', {}, lang);
     if (body?.type === MODAL && body.data?.custom_id === VERIFY_ID) return linkCommand(body, 'link', { nick: modalValue(body.data, 'nick') }, lang);
     if (body?.type !== COMMAND) return { reply: { type: 4, data: { content: '?', flags: EPHEMERAL } } };
     const name = body.data?.name;
+    if (offCommands().has(name)) return { reply: { type: 4, data: { content: lang === 'en' ? 'This command is turned off.' : 'Эта команда сейчас выключена.', flags: EPHEMERAL } } };
     const opts = optionsOf(body.data);
     const flags = opts.private ? EPHEMERAL : 0;
     if (name === 'price') return { reply: { type: 4, data: { ...price(opts, lang), flags } } };
@@ -265,14 +269,19 @@ export function createDiscordBot(o) {
     if (out.after) Promise.resolve().then(out.after).catch(e => console.warn('[discord-бот]', e?.message || e));
   });
 
-  /** Регистрация команд при запуске — только если список изменился с прошлого раза */
+  // Команды, выключенные на странице «Discord-бот», в Discord не записываются (и не исчезнут только у старых клиентов — им отвечаем «выключена»)
+  function offCommands() { try { return new Set(o.commandsOff?.() || []); } catch { return new Set(); } }
+  const activeCommands = () => { const off = offCommands(); return COMMANDS.filter(c => !off.has(c.name)); };
+
+  /** Регистрация команд: при запуске и после правки на странице — только если список изменился с прошлого раза */
   async function registerCommands() {
     if (!enabled || !token) return false;
-    const hash = commandsHash();
+    const list = activeCommands();
+    const hash = commandsHash(list);
     const file = o.commandsFile;
     try { if (file && JSON.parse(fs.readFileSync(file, 'utf8')).hash === `${appId}:${hash}`) return false; } catch { /* первый запуск */ }
     const r = await doFetch(`${API}/applications/${appId}/commands`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bot ${token}` }, body: JSON.stringify(COMMANDS),
+      method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bot ${token}` }, body: JSON.stringify(list),
     });
     if (!r.ok) { console.warn('[discord-бот] команды не зарегистрированы:', r.status); return false; }
     try { if (file) fs.writeFileSync(file, JSON.stringify({ hash: `${appId}:${hash}`, at: Date.now() })); } catch { /* зарегистрируем ещё раз при следующем запуске */ }
@@ -280,5 +289,5 @@ export function createDiscordBot(o) {
     return true;
   }
 
-  return { enabled, router, handle, registerCommands, ensurePanel };
+  return { enabled, router, handle, registerCommands, ensurePanel, commands: COMMANDS };
 }
