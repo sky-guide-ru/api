@@ -3,8 +3,9 @@ import { analyzeEssence, analyzeSackLadder, analyzeSacks, marketId } from '@sky-
 import { analyzeSell } from '@sky-guide/core/stash/sell.js';
 import { analyzeCraft } from '@sky-guide/core/stash/craft.js';
 import { getCart } from '@sky-guide/core/roadmap/cart.js';
+import { myItems } from '@sky-guide/core/market/my-items.js';
 
-/** Мешки, эссенции и «Что продать»: { sacks(v), essence(v), sell(v) } — для /api/sacks, /api/essence, /api/sell и /v1 (кэш общий) */
+/** Мешки, эссенции, «Что продать» и «Твои вещи»: { sacks(v), essence(v), sell(v), mine(v) } — для /api/sacks, /api/essence, /api/sell, /api/my-items и /v1 (кэш общий) */
 export function createStash(deps) {
   // Готовый расчёт держим, пока не сменились профиль (новый объект member) или цены: страница спрашивает
   // мешки и эссенции при каждом обновлении, а считать их заново (рецепты, перки, подсказки по тексту) незачем
@@ -39,6 +40,17 @@ export function createStash(deps) {
       });
       return { status: 'ok', ...out, player: v.player?.name || null, self: !!v.self };
     },
+    // «Твои вещи» (Заработок): вещи без дела, движение цен своих вещей, мешки — мешки берём из расчёта «Что продать»
+    mine(v) {
+      const d = deps();
+      const m = v.member;
+      const sell = this.sell(v);
+      const out = cached(m, 'mine', `${d.pricesKey?.()}:${(v.analysis?.roadmap || []).length}`, () => myItems(m, {
+        ...d, roadmap: v.analysis?.roadmap || [], cartIds: Object.keys((m.uuid && m.profileId && getCart(`${m.uuid}:${m.profileId}`)?.custom) || {}),
+        sellItems: sell.items || [], networth: v.analysis?.gear?.networth || null,
+      }));
+      return { status: 'ok', ...out, player: v.player?.name || null, self: !!v.self };
+    },
     essence(v) {
       const d = deps();
       const out = cached(v.member, 'essence', d.pricesKey?.(), () => {
@@ -60,8 +72,8 @@ export function mountStashRoutes(app, { getView, stash }) {
     if (!v?.member) { res.json({ status: 'error', error: v?.error || 'Профиль ещё не загружен' }); return null; }
     return v;
   };
-  for (const kind of ['sacks', 'essence', 'sell']) {
-    app.get(`/api/${kind}`, async (req, res) => {
+  for (const [path, kind] of [['sacks', 'sacks'], ['essence', 'essence'], ['sell', 'sell'], ['my-items', 'mine']]) {
+    app.get(`/api/${path}`, async (req, res) => {
       const v = await view(req, res); if (!v) return;
       try { res.json(stash[kind](v)); } catch (e) { res.status(500).json({ status: 'error', error: e.message }); }
     });
