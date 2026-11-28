@@ -5,7 +5,7 @@
 // - Hypixel: запросов с ключом за час, пик за 5 минут против лимита ключа, паузы после 429.
 // - Сервер: CPU, память api против лимита контейнера, свободная память VPS, диск, задержка цикла событий.
 // - Вес сайта: сколько весит первая загрузка (JS и CSS из index.html, сжатыми) — по каждой новой сборке.
-// Тревоги уходят через monitor.alert (почта и Discord, не чаще раза в 3 часа на одну тему).
+// Тревоги — только о серьёзном — уходят через monitor.alert (почта и Discord, не чаще раза в 3 часа на одну тему).
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -15,17 +15,15 @@ const MIN = 60_000, HOUR = 60 * MIN;
 export const LAT_EDGES = [50, 100, 200, 400, 800, 1500, 3000, 6000]; // мс; последняя корзина — дольше 6 с
 const KEEP_HOURS = 7 * 24, MAX_ROUTES = 60, WINDOW = 15 * MIN, MAX_WINDOW = 50_000, KEEP_BUILDS = 20;
 
-// Пороги тревог: подобраны так, чтобы будить только при настоящей беде, а не от одного медленного запроса
+// Пороги тревог — только серьёзное (просьба владельца 28.11): сайт заметно тормозит у всех, вот-вот упадёт
+// или профили перестали обновляться. Медленный отдельный адрес и вес сборки видны на странице «Сервер», но не будят
 export const LIMITS = {
-  slowP95Ms: 1500, slowMinRequests: 150, // все адреса за 15 минут: у 95% ответ дольше 1,5 с
-  routeP95Ms: 4000, routeMinRequests: 40, // один адрес за 15 минут
-  hypixelShare: 0.85, // пик за 5 минут ≥ 85% лимита ключа
-  memShare: 0.9, memMinutes: 3, // память api ≥ 90% лимита контейнера 3 минуты подряд
-  freeMemMb: 250, // у всего VPS свободно меньше 250 МБ
-  cpuPct: 90, cpuMinutes: 10, // CPU всего сервера ≥ 90% 10 минут подряд
-  lagMs: 400, lagMinutes: 5, // задержка цикла событий ≥ 0,4 с 5 минут подряд
-  diskFreeGb: 3, diskFreeShare: 0.1, // на диске меньше 3 ГБ или меньше 10%
-  weightGrowth: 0.15, weightGrowthKb: 30, // первая загрузка потяжелела на 15% и хотя бы на 30 КБ
+  slowP95Ms: 3000, slowMinRequests: 300, // все адреса за 15 минут: у 95% ответ дольше 3 с
+  memShare: 0.95, memMinutes: 5, // память api ≥ 95% лимита контейнера 5 минут подряд — скоро перезапуск
+  freeMemMb: 150, // у всего VPS свободно меньше 150 МБ
+  cpuPct: 95, cpuMinutes: 15, // CPU всего сервера ≥ 95% 15 минут подряд
+  lagMs: 1000, lagMinutes: 5, // задержка цикла событий ≥ 1 с 5 минут подряд: сайт почти не отвечает
+  diskFreeGb: 2, diskFreeShare: 0.05, // на диске меньше 2 ГБ или меньше 5%
 };
 
 const hourKey = t => new Date(t).toISOString().slice(0, 13); // UTC: 2026-11-28T18
@@ -190,17 +188,13 @@ export function createPerf({ dataDir, clock = () => Date.now(), sample = () => n
       streak.lag = (s.lagMs || 0) >= LIMITS.lagMs ? streak.lag + 1 : 0;
       if (streak.lag >= LIMITS.lagMinutes) fired.push(alert('perf-lag', `Сервер сайта подтормаживает ${streak.lag} мин подряд`, `Задержка цикла событий Node ${sec(s.lagMs)} (норма — до 0,05 с): все запросы ждут, пока сервер освободится. Кто держит — блок «Замирания» на странице «Сервер».`));
       if (s.disk && (s.disk.freeGb < LIMITS.diskFreeGb || s.disk.freeGb < s.disk.totalGb * LIMITS.diskFreeShare)) fired.push(alert('perf-disk', `На диске сервера осталось ${String(s.disk.freeGb).replace('.', ',')} ГБ`, `Свободно ${String(s.disk.freeGb).replace('.', ',')} из ${String(s.disk.totalGb).replace('.', ',')} ГБ. Когда место кончится, обновления не соберутся, а данные перестанут сохраняться. Обычно место съедает Docker: docker system df, затем docker image prune.`));
-      // Hypixel: пик близко к лимиту ключа; пауза после 429
-      if ((s.keyed5m || 0) >= limit * LIMITS.hypixelShare) fired.push(alert('perf-hypixel', `Ключ Hypixel почти исчерпан: ${s.keyed5m} из ${limit} за 5 минут`, `За последние 5 минут ушло ${s.keyed5m} запросов из ${limit}. Чужие профили уже обновляются реже, на пределе Hypixel поставит ключ на паузу. Помогает только одобренный ключ приложения с бо́льшим лимитом (developer.hypixel.net), объединять ключи нельзя по правилам Hypixel.`));
+      // Hypixel поставил ключ на паузу (429): профили не обновляются
       if (s.paused) fired.push(alert(`perf-429:${s.paused.at || s.paused.until}`, s.paused.daily ? 'Суточный лимит ключа Hypixel исчерпан' : 'Hypixel поставил ключ на паузу (ответ 429)', `Профили не обновляются до ${new Date(s.paused.until).toLocaleString('ru-RU', { timeZone: tz })}, сайт показывает последние данные.`));
     }
     // Скорость ответов за 15 минут
     const w = windowStats(now);
     if (w.n >= LIMITS.slowMinRequests && w.p95 >= LIMITS.slowP95Ms) {
       fired.push(alert('perf-slow', `Сайт отвечает медленно: у 5% запросов дольше ${sec(w.p95)}`, `За 15 минут ${ru(w.n)} запросов, 95% из них быстрее ${sec(w.p95)}. Медленнее всех: ${w.routes.slice(0, 4).map(r => `${r.route} ${sec(r.p95)} (${r.n})`).join(', ')}.`));
-    } else {
-      const bad = w.routes.find(r => r.n >= LIMITS.routeMinRequests && r.p95 >= LIMITS.routeP95Ms);
-      if (bad) fired.push(alert(`perf-route:${bad.route}`, `Медленный адрес: ${bad.route} — ${sec(bad.p95)}`, `За 15 минут ${bad.n} запросов к ${bad.route}, у 5% ответ дольше ${sec(bad.p95)}. Остальной сайт отвечает нормально.`));
     }
     // Вес сайта: раз в 10 минут смотрим, не вышла ли новая сборка
     if (now - lastWeightCheck >= 10 * MIN) {
@@ -210,13 +204,8 @@ export function createPerf({ dataDir, clock = () => Date.now(), sample = () => n
         weightMtime = m;
         const pw = pageWeight(webDist);
         if (pw && builds.at(-1)?.id !== pw.id) {
-          const prev = builds.at(-1);
           builds = [...builds, { ...pw, seenAt: now }].slice(-KEEP_BUILDS);
           dirty = true;
-          const grow = prev ? pw.js.gz + pw.css.gz - (prev.js.gz + prev.css.gz) : 0;
-          if (prev && grow >= LIMITS.weightGrowthKb * 1024 && grow >= (prev.js.gz + prev.css.gz) * LIMITS.weightGrowth) {
-            fired.push(alert(`perf-weight:${pw.id}`, `Сайт потяжелел на ${kb(grow)}`, `Первая загрузка новой сборки: ${kb(pw.js.gz + pw.css.gz)} сжатыми (было ${kb(prev.js.gz + prev.css.gz)}). Самые тяжёлые файлы: ${pw.biggest.map(b => `${b.name} ${kb(b.gz)}`).join(', ')}. На телефоне это заметно — проверить, не попала ли в первую загрузку большая библиотека или данные.`));
-          }
         }
       }
     }

@@ -4,7 +4,7 @@
 // Страна — по офлайн-базе (geo.js) в момент захода, язык браузера — из Accept-Language, метки utm — из адреса входа;
 // всё это только прибавляет +1 к дневному счётчику («RU: 12»), отдельных записей о посетителях нет.
 // Ошибки браузера и сервера группируются по отпечатку (текст + место). Тревоги и сводка — письмом владельцу
-// и в закрытый канал Discord (notify), если он настроен; скорость и нагрузка — в сводку из perf.js (digestExtra).
+// и в Discord (notify), если он настроен. В Discord идут только тревоги о сбоях, сводка — только на почту.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -137,7 +137,8 @@ export function createMonitor({
   excludedNick = () => false, uptimeStart = clock(),
   notify = null, digestExtra = () => [],
 } = {}) {
-  // notify: { enabled, send({ title, text, kind }) } — Discord (monitor/discord.js); без него — только почта
+  // notify: { enabled, send({ title, text, kind }) } — Discord (monitor/discord.js); без него — только почта.
+  // Лимит ИИ-советчика — не сбой сайта, в Discord его не шлём
   const notifyOn = () => !!notify?.enabled;
   const dir = path.join(dataDir, 'metrics');
   const daysDir = path.join(dir, 'days');
@@ -361,7 +362,7 @@ export function createMonitor({
     dirty = true;
     await Promise.all([
       (async () => { try { entry.mailed = await sendMail({ subject: `⚠ ${title}`, text: `${text}\n\n${linkLine()}` }); } catch (e) { entry.error = scrub(e.message, 160); } })(),
-      notifyOn() ? (async () => { try { entry.discord = await notify.send({ title: `⚠ ${title}`, text, kind: 'alert' }); } catch (e) { entry.discord = false; entry.discordError = scrub(e.message, 160); } })() : null,
+      notifyOn() && !key.startsWith('ai:') ? (async () => { try { entry.discord = await notify.send({ title: `⚠ ${title}`, text, kind: 'alert' }); } catch (e) { entry.discord = false; entry.discordError = scrub(e.message, 160); } })() : null,
     ]);
     flush();
     return true;
@@ -403,16 +404,9 @@ export function createMonitor({
     // 6. Сводка раз в сутки в 9 утра (если не вышло — повтор через час)
     if (hourIn(now, tz) >= 9 && alerts.digestDay !== today && now - (alerts.digestTriedAt || 0) > HOUR) {
       alerts.digestTriedAt = now; dirty = true;
-      const viaMail = !!mailInfo().configured, viaDiscord = notifyOn();
-      if (!viaMail && !viaDiscord) alerts.digestDay = today;
+      if (!mailInfo().configured) alerts.digestDay = today;
       else {
-        // Ушло хоть куда-то — сводка за сегодня отправлена (иначе почта дублировалась бы каждый час, пока молчит Discord)
-        const subject = `Сводка за ${prevDay(today).slice(8, 10)}.${prevDay(today).slice(5, 7)}`, text = digestText();
-        const [m, d] = await Promise.all([
-          viaMail ? sendMail({ subject, text }).catch(e => { console.warn('[сводка]', e.message); return false; }) : false,
-          viaDiscord ? notify.send({ title: subject, text, kind: 'digest' }).catch(e => { console.warn('[сводка в Discord]', e.message); return false; }) : false,
-        ]);
-        if (m || d) alerts.digestDay = today;
+        try { if (await sendMail({ subject: `Сводка за ${prevDay(today).slice(8, 10)}.${prevDay(today).slice(5, 7)}`, text: digestText() })) alerts.digestDay = today; } catch (e) { console.warn('[сводка]', e.message); }
       }
     }
     flush();
