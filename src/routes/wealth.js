@@ -7,7 +7,8 @@ import { maxwellAnalysis } from '@sky-guide/core/analysis/maxwell.js';
 /** { bank(m), bits(m, { bits, fame }), maxwell(m) } — m может быть null */
 export function wealthViews({ prices, priceOf, itemName, now = () => Date.now() }) {
   return {
-    bank: m => (m ? bankAnalysis(m, now()) : null),
+    // Цена улучшения счёта: монеты + Enchanted Gold Block по живой цене Bazaar
+    bank: m => (m ? bankAnalysis(m, now(), { blockPrice: prices.bazaar?.get?.('ENCHANTED_GOLD_BLOCK')?.buy || 0 }) : null),
     bits: (m, q = {}) => bitsAnalysis(m, {
       sellPrice: priceOf,
       buyPrice: id => prices.bazaar?.get?.(id)?.buy || prices.bin?.get?.(id)?.price || 0,

@@ -42,7 +42,11 @@ export function mountPriceRoutes(app, { getMember = () => null, getView = null, 
   });
   r.get('/flips/forge', (req, res) => res.json(money.forgeFlips({ quickForge: num(req.query.quick, 0) })));
   r.get('/flips/snipes', (req, res) => res.json(money.binSnipes({ maxPrice: num(req.query.max, Infinity), limit: Math.min(num(req.query.limit, 30), 200) })));
-  r.get('/crops', (req, res) => res.json(money.cropProfits(req.query.fortune ? Number(req.query.fortune) : undefined, req.query.bps ? Number(req.query.bps) : undefined)));
+  // Без ?fortune — та же Farming Fortune, что в «Методах» (ползунок владельца или оценка по снаряжению профиля)
+  r.get('/crops', async (req, res) => {
+    const m = req.query.fortune ? null : await getMember(req);
+    res.json(money.cropProfits(req.query.fortune ? Number(req.query.fortune) : undefined, req.query.bps ? Number(req.query.bps) : undefined, m));
+  });
   r.get('/movers', (req, res) => res.json(money.topMovers({ period: req.query.period === 'd7' ? 'd7' : 'd1' })));
   r.get('/trend/:id', (req, res) => res.json(priceTrend(req.params.id)));
   r.get('/item/:id', (req, res) => res.json(priceInfo(req.params.id)));
